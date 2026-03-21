@@ -108,11 +108,17 @@ const IconNav = ({ currentStep, onNavigate, highestVisited }: { currentStep: num
               className={`icon-nav-button flex flex-col items-center justify-center p-2 rounded-lg transition-all duration-200 ease-in-out group ${
                 currentStep === index
                   ? 'bg-green-100'
+<<<<<<< HEAD
                   : index === highestVisited + 1
                   ? 'hover:bg-green-50 border border-dashed border-green-300'
                   : index <= highestVisited
                   ? 'hover:bg-gray-100'
                   : 'cursor-not-allowed opacity-40'
+=======
+                  : index <= highestVisited + 1
+                  ? 'hover:bg-gray-100'
+                  : 'cursor-not-allowed opacity-50'
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
               }`}
               style={{ minWidth: '85px' }}
             >

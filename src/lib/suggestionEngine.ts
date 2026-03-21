@@ -112,6 +112,7 @@ export function generateSuggestions(
     }
   }
 
+<<<<<<< HEAD
   // 6. Satisfy Net Expenses Only - always suggest if not already using this strategy
   if (scenario.withdrawal_strategy !== 'net_expenses_only') {
     suggestions.push({
@@ -128,6 +129,8 @@ export function generateSuggestions(
     });
   }
 
+=======
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   // Sort by priority (lower number = higher priority)
   return suggestions.sort((a, b) => a.priority - b.priority);
 }

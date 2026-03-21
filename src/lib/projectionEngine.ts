@@ -31,8 +31,11 @@ interface AccountBalances {
   fhsa: number;
   non_reg: number;
   non_reg_acb: number;
+<<<<<<< HEAD
   non_reg_spouse: number;
   non_reg_spouse_acb: number;
+=======
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
 }
 
 export interface ProjectionOverrides {
@@ -42,7 +45,10 @@ export interface ProjectionOverrides {
   disableBracketFilling?: boolean;
   disableRrspExhaustion?: boolean;
   additionalMonthlySavings?: number;
+<<<<<<< HEAD
   withdrawalStrategy?: Scenario['withdrawal_strategy'];
+=======
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
 }
 
 const RRIF_MINIMUM_RATES: Record<number, number> = {
@@ -106,7 +112,11 @@ function calculateContributions(
   yearFromStart: number,
   inflationRate: number
 ): AccountBalances {
+<<<<<<< HEAD
   const balances: AccountBalances = { rrsp: 0, rrsp_spouse: 0, tfsa: 0, fhsa: 0, non_reg: 0, non_reg_acb: 0, non_reg_spouse: 0, non_reg_spouse_acb: 0 };
+=======
+  const balances: AccountBalances = { rrsp: 0, rrsp_spouse: 0, tfsa: 0, fhsa: 0, non_reg: 0, non_reg_acb: 0 };
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   accounts.forEach(account => {
     if (age <= account.contribution_end_age) {
       const annual = account.monthly_contribution * 12;
@@ -120,6 +130,7 @@ function calculateContributions(
         } else {
           balances.rrsp += contribution;
         }
+<<<<<<< HEAD
       } else if (account.account_type === 'non_reg') {
         if (account.person === 'spouse') {
           balances.non_reg_spouse += contribution;
@@ -131,6 +142,14 @@ function calculateContributions(
       } else {
         balances[account.account_type] += contribution;
       }
+=======
+      } else {
+        balances[account.account_type] += contribution;
+      }
+      if (account.account_type === 'non_reg') {
+        balances.non_reg_acb += contribution;
+      }
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
     }
   });
   return balances;
@@ -161,9 +180,13 @@ function applyReturns(balances: AccountBalances, returnRate: number, allocations
 
   const nonRegUsWeight = getAccountUsEquityWeight('non_reg', allocations);
   const nonRegDrag = nonRegUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+<<<<<<< HEAD
   const nonRegGrowthFactor = 1 + (returnRate - nonRegDrag) / 100;
   balances.non_reg *= nonRegGrowthFactor;
   balances.non_reg_spouse *= nonRegGrowthFactor;
+=======
+  balances.non_reg *= (1 + (returnRate - nonRegDrag) / 100);
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
 }
 
 function calcNonRegCapitalGainInclusion(
@@ -340,6 +363,7 @@ function calculateOptimizedWithdrawals(
     remaining -= rrifWithdraw;
   }
 
+<<<<<<< HEAD
   if (remaining > 0 && (balances.non_reg > 0 || balances.non_reg_spouse > 0)) {
     const totalNonReg = balances.non_reg + balances.non_reg_spouse;
     const fromNonRegTotal = Math.min(remaining, totalNonReg);
@@ -355,6 +379,16 @@ function calculateOptimizedWithdrawals(
     balances.non_reg -= fromPrimary;
     balances.non_reg_spouse -= fromSpouseNR;
     remaining -= fromPrimary + fromSpouseNR;
+=======
+  if (remaining > 0 && balances.non_reg > 0) {
+    const fromNonReg = Math.min(remaining, balances.non_reg);
+    const cgInclusion = calcNonRegCapitalGainInclusion(fromNonReg, balances.non_reg, balances.non_reg_acb);
+    balances.non_reg_acb = updateNonRegAcbOnWithdrawal(fromNonReg, balances.non_reg, balances.non_reg_acb);
+    result.non_reg = fromNonReg;
+    result.capitalGainInclusion += cgInclusion;
+    balances.non_reg -= fromNonReg;
+    remaining -= fromNonReg;
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   }
 
   const pensionIncomeEstimate = result.rrsp;
@@ -668,7 +702,10 @@ export function runSingleProjection(
   const disableForcedWithdrawals = overrides?.disableForcedWithdrawals ?? false;
   const disableBracketFilling = overrides?.disableBracketFilling ?? false;
   const additionalMonthlySavings = overrides?.additionalMonthlySavings ?? 0;
+<<<<<<< HEAD
   const effectiveWithdrawalStrategy = overrides?.withdrawalStrategy ?? scenario.withdrawal_strategy;
+=======
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
 
   const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
 
@@ -677,10 +714,15 @@ export function runSingleProjection(
     rrsp_spouse: savingsAccounts.filter(a => a.account_type === 'rrsp' && a.person === 'spouse').reduce((s, a) => s + a.current_balance, 0),
     tfsa: savingsAccounts.filter(a => a.account_type === 'tfsa').reduce((s, a) => s + a.current_balance, 0),
     fhsa: savingsAccounts.filter(a => a.account_type === 'fhsa').reduce((s, a) => s + a.current_balance, 0),
+<<<<<<< HEAD
     non_reg: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary').reduce((s, a) => s + a.current_balance, 0),
     non_reg_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary').reduce((s, a) => s + a.current_balance, 0),
     non_reg_spouse: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse').reduce((s, a) => s + a.current_balance, 0),
     non_reg_spouse_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse').reduce((s, a) => s + a.current_balance, 0),
+=======
+    non_reg: savingsAccounts.filter(a => a.account_type === 'non_reg').reduce((s, a) => s + a.current_balance, 0),
+    non_reg_acb: savingsAccounts.filter(a => a.account_type === 'non_reg').reduce((s, a) => s + a.current_balance, 0)
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   };
 
   const cppStartAge = overrideCppStartAge ?? scenario.cpp_start_age;
@@ -767,10 +809,15 @@ export function runSingleProjection(
     const rrifWithdrawalEstimate = (age >= 72 && (balances.rrsp + balances.rrsp_spouse) > 0)
       ? getRRIFMinimum(age, balances.rrsp + balances.rrsp_spouse)
       : 0;
+<<<<<<< HEAD
     const totalNonRegForGis = balances.non_reg + balances.non_reg_spouse;
     const totalNonRegAcbForGis = balances.non_reg_acb + balances.non_reg_spouse_acb;
     const nonRegGainEstimate = totalNonRegForGis > 0 && totalNonRegForGis > totalNonRegAcbForGis
       ? calcTieredCapitalGainInclusion((totalNonRegForGis - totalNonRegAcbForGis) * 0.04, year, effectiveInflation)
+=======
+    const nonRegGainEstimate = balances.non_reg > 0 && balances.non_reg > balances.non_reg_acb
+      ? calcTieredCapitalGainInclusion((balances.non_reg - balances.non_reg_acb) * 0.04, year, effectiveInflation)
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
       : 0;
     const preGisOtherIncome = salary + totalCpp + totalDbPension + rrifWithdrawalEstimate + nonRegGainEstimate;
     const gisResult = calculateGISBenefit(
@@ -788,8 +835,11 @@ export function runSingleProjection(
     balances.fhsa += contributions.fhsa;
     balances.non_reg += contributions.non_reg;
     balances.non_reg_acb += contributions.non_reg_acb;
+<<<<<<< HEAD
     balances.non_reg_spouse += contributions.non_reg_spouse;
     balances.non_reg_spouse_acb += contributions.non_reg_spouse_acb;
+=======
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
 
     if (additionalMonthlySavings > 0 && age < effectiveRetirementAge) {
       const additionalAnnual = additionalMonthlySavings * 12;
@@ -811,7 +861,11 @@ export function runSingleProjection(
     const preWithdrawalRrsp = balances.rrsp + balances.rrsp_spouse;
     const preWithdrawalTfsa = balances.tfsa;
     const preWithdrawalFhsa = balances.fhsa;
+<<<<<<< HEAD
     const preWithdrawalNonReg = balances.non_reg + balances.non_reg_spouse;
+=======
+    const preWithdrawalNonReg = balances.non_reg;
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
 
     const isRetired = age >= effectiveRetirementAge;
     const withdrawals = calculateOptimizedWithdrawals(
@@ -822,7 +876,11 @@ export function runSingleProjection(
       rrspExhaustionAnnualBase,
       isRetired,
       retirementYearIndex,
+<<<<<<< HEAD
       effectiveWithdrawalStrategy,
+=======
+      scenario.withdrawal_strategy,
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
       disableForcedWithdrawals,
       disableBracketFilling
     );
@@ -885,6 +943,7 @@ export function runSingleProjection(
 
     const afterTaxIncome = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + withdrawals.non_reg - totalTax + withdrawals.tfsa;
 
+<<<<<<< HEAD
     const isNetExpensesOnly = effectiveWithdrawalStrategy === 'net_expenses_only';
     let surplus = afterTaxIncome - totalExpensesNeeded;
     let surplusToNonReg = 0;
@@ -901,6 +960,13 @@ export function runSingleProjection(
         balances.non_reg += surplusToNonReg;
         balances.non_reg_acb += surplusToNonReg;
       }
+=======
+    const surplus = afterTaxIncome - totalExpensesNeeded;
+    const surplusToNonReg = surplus > 0 ? surplus : 0;
+    if (surplusToNonReg > 0) {
+      balances.non_reg += surplusToNonReg;
+      balances.non_reg_acb += surplusToNonReg;
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
     }
 
     const isLastYear = year === totalYears - 1;
@@ -909,10 +975,15 @@ export function runSingleProjection(
 
     if (isLastYear) {
       const combinedRrsp = balances.rrsp + balances.rrsp_spouse;
+<<<<<<< HEAD
       const combinedNonReg = balances.non_reg + balances.non_reg_spouse;
       const combinedNonRegAcb = balances.non_reg_acb + balances.non_reg_spouse_acb;
       const termResult = calculateTerminalTax(
         combinedRrsp, combinedNonReg, combinedNonRegAcb,
+=======
+      const termResult = calculateTerminalTax(
+        combinedRrsp, balances.non_reg, balances.non_reg_acb,
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
         scenario.province, year, effectiveInflation, age
       );
       terminalTax = termResult.terminalTax;
@@ -952,9 +1023,15 @@ export function runSingleProjection(
       rrsp_balance: balances.rrsp + balances.rrsp_spouse,
       tfsa_balance: balances.tfsa,
       fhsa_balance: balances.fhsa,
+<<<<<<< HEAD
       non_reg_balance: balances.non_reg + balances.non_reg_spouse,
       non_reg_acb: balances.non_reg_acb + balances.non_reg_spouse_acb,
       total_balance: balances.rrsp + balances.rrsp_spouse + balances.tfsa + balances.fhsa + balances.non_reg + balances.non_reg_spouse,
+=======
+      non_reg_balance: balances.non_reg,
+      non_reg_acb: balances.non_reg_acb,
+      total_balance: balances.rrsp + balances.rrsp_spouse + balances.tfsa + balances.fhsa + balances.non_reg,
+>>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
       terminal_tax: terminalTax,
       net_estate_value: netEstateValue,
       gis_benefit: gisAmount > 0 ? gisAmount : undefined,
