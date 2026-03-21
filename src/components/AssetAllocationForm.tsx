@@ -1,5 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { AssetAllocation, SavingsAccount } from '../types/retirement';
+import { AssetAllocation, SavingsAccount, Person } from '../types/retirement';
 
 interface AssetAllocationFormProps {
   allocations: AssetAllocation[];
@@ -10,9 +10,19 @@ interface AssetAllocationFormProps {
 const COLORS = { stocks: '#3b82f6', bonds: '#10b981', cash: '#f59e0b', real_estate: '#ef4444', other: '#6b7280' };
 const ACCOUNT_NAMES: Record<string, string> = { rrsp: 'RRSP', tfsa: 'TFSA', fhsa: 'FHSA', non_reg: 'Non-Registered' };
 
-function getAllocation(allocations: AssetAllocation[], accountType: string): AssetAllocation {
-  return allocations.find(a => a.account_type === accountType) || {
+interface AllocationTarget {
+  key: string;
+  accountType: string;
+  person?: Person;
+  label: string;
+}
+
+function getAllocation(allocations: AssetAllocation[], accountType: string, person?: Person): AssetAllocation {
+  const specific = allocations.find(a => a.account_type === accountType && (a.person ?? 'primary') === (person ?? 'primary'));
+  const fallback = allocations.find(a => a.account_type === accountType && a.person == null);
+  return specific || fallback || {
     account_type: accountType as AssetAllocation['account_type'],
+    person,
     stocks: 60, bonds: 30, cash: 10, real_estate: 0, other: 0,
     us_equity_weight: 60, cad_equity_weight: 40
   };
@@ -20,6 +30,28 @@ function getAllocation(allocations: AssetAllocation[], accountType: string): Ass
 
 export default function AssetAllocationForm({ allocations, onChange, savingsAccounts }: AssetAllocationFormProps) {
   const presentAccountTypes = [...new Set(savingsAccounts.map(a => a.account_type))];
+  const hasPrimaryNonReg = savingsAccounts.some(a => a.account_type === 'non_reg' && a.person === 'primary');
+  const hasSpouseNonReg = savingsAccounts.some(a => a.account_type === 'non_reg' && a.person === 'spouse');
+
+  const allocationTargets: AllocationTarget[] = presentAccountTypes.flatMap((accountType) => {
+    if (accountType !== 'non_reg') {
+      return [{ key: accountType, accountType, label: ACCOUNT_NAMES[accountType] }];
+    }
+
+    const targets: AllocationTarget[] = [];
+    if (hasPrimaryNonReg) {
+      targets.push({ key: 'non_reg_primary', accountType: 'non_reg', person: 'primary', label: 'Non-Registered (Primary)' });
+    }
+    if (hasSpouseNonReg) {
+      targets.push({ key: 'non_reg_spouse', accountType: 'non_reg', person: 'spouse', label: 'Non-Registered (Spouse)' });
+    }
+
+    // Backward compatibility: if person metadata is unavailable, keep a single shared bucket.
+    if (targets.length === 0) {
+      targets.push({ key: 'non_reg', accountType: 'non_reg', label: 'Non-Registered' });
+    }
+    return targets;
+  });
 
   if (presentAccountTypes.length === 0) {
     return (
@@ -30,27 +62,29 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
     );
   }
 
-  const updateAllocation = (accountType: string, field: keyof AssetAllocation, value: number) => {
-    const existing = allocations.find(a => a.account_type === accountType);
+  const updateAllocation = (accountType: string, person: Person | undefined, field: keyof AssetAllocation, value: number) => {
+    const matches = (a: AssetAllocation) => a.account_type === accountType && (a.person ?? undefined) === person;
+    const existing = allocations.find(matches);
     if (existing) {
-      onChange(allocations.map(a => a.account_type === accountType ? { ...a, [field]: value } : a));
+      onChange(allocations.map(a => matches(a) ? { ...a, [field]: value } : a));
     } else {
-      const base = getAllocation(allocations, accountType);
+      const base = getAllocation(allocations, accountType, person);
       onChange([...allocations, { ...base, [field]: value }]);
     }
   };
 
-  const updateGeoWeight = (accountType: string, usWeight: number) => {
+  const updateGeoWeight = (accountType: string, person: Person | undefined, usWeight: number) => {
     const cadWeight = 100 - usWeight;
-    const existing = allocations.find(a => a.account_type === accountType);
+    const matches = (a: AssetAllocation) => a.account_type === accountType && (a.person ?? undefined) === person;
+    const existing = allocations.find(matches);
     if (existing) {
       onChange(allocations.map(a =>
-        a.account_type === accountType
+        matches(a)
           ? { ...a, us_equity_weight: usWeight, cad_equity_weight: cadWeight }
           : a
       ));
     } else {
-      const base = getAllocation(allocations, accountType);
+      const base = getAllocation(allocations, accountType, person);
       onChange([...allocations, { ...base, us_equity_weight: usWeight, cad_equity_weight: cadWeight }]);
     }
   };
@@ -62,8 +96,8 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
         <p className="text-sm text-gray-600">Define the investment mix for each account. Values should total 100%.</p>
       </div>
 
-      {presentAccountTypes.map(accountType => {
-        const alloc = getAllocation(allocations, accountType);
+      {allocationTargets.map(target => {
+        const alloc = getAllocation(allocations, target.accountType, target.person);
         const total = alloc.stocks + alloc.bonds + alloc.cash + alloc.real_estate + alloc.other;
         const usWeight = alloc.us_equity_weight ?? 60;
         const cadWeight = alloc.cad_equity_weight ?? 40;
@@ -77,8 +111,8 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
         ].filter(d => d.value > 0);
 
         return (
-          <div key={accountType} className="bg-white border border-gray-200 rounded-lg p-5">
-            <h4 className="font-semibold text-gray-900 mb-4">{ACCOUNT_NAMES[accountType]}</h4>
+          <div key={target.key} className="bg-white border border-gray-200 rounded-lg p-5">
+            <h4 className="font-semibold text-gray-900 mb-4">{target.label}</h4>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-3">
                 {(['stocks', 'bonds', 'cash', 'real_estate', 'other'] as const).map(field => (
@@ -88,10 +122,10 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
                     </div>
                     <div className="flex items-center gap-3">
                       <input type="range" min={0} max={100} step={5} value={alloc[field]}
-                        onChange={e => updateAllocation(accountType, field, parseInt(e.target.value))}
+                        onChange={e => updateAllocation(target.accountType, target.person, field, parseInt(e.target.value))}
                         className="flex-1 accent-blue-600" />
                       <input type="number" min={0} max={100} step={5} value={alloc[field]}
-                        onChange={e => updateAllocation(accountType, field, parseFloat(e.target.value) || 0)}
+                        onChange={e => updateAllocation(target.accountType, target.person, field, parseFloat(e.target.value) || 0)}
                         className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-center" />
                     </div>
                   </div>
@@ -129,12 +163,12 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
                     <span className="text-xs font-medium text-gray-600 w-20 shrink-0">US (S&amp;P 500)</span>
                     <input
                       type="range" min={0} max={100} step={5} value={usWeight}
-                      onChange={e => updateGeoWeight(accountType, parseInt(e.target.value))}
+                      onChange={e => updateGeoWeight(target.accountType, target.person, parseInt(e.target.value))}
                       className="flex-1 accent-blue-600"
                     />
                     <input
                       type="number" min={0} max={100} step={5} value={usWeight}
-                      onChange={e => updateGeoWeight(accountType, Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                      onChange={e => updateGeoWeight(target.accountType, target.person, Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
                       className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-center"
                     />
                   </div>

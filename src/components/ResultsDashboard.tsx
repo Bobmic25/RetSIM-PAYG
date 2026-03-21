@@ -294,6 +294,7 @@ export default function ResultsDashboard({
           <PDFExport
             projections={projections}
             scenario={scenario}
+            monteCarloResult={monteCarloResult}
             incomeSources={incomeSources}
             savingsAccounts={savingsAccounts}
             expenseLadder={expenseLadder}
@@ -470,15 +471,18 @@ export default function ResultsDashboard({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {savedResults.map((r, i) => {
               const last = r.projections[r.projections.length - 1];
-              const tax = r.projections.reduce((s, p) => s + p.total_tax, 0);
+              const finalBalance = pv(last.total_balance, last.year - 1);
+              const tax = showTodayDollars
+                ? r.projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
+                : r.projections.reduce((s, p) => s + p.total_tax, 0);
               return (
                 <div key={i} className="border-2 rounded-lg p-4" style={{ borderColor: r.color }}>
                   <p className="font-semibold mb-2" style={{ color: r.color }}>{r.name}</p>
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Final Balance</span>
-                      <span className={`font-bold ${last.total_balance < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {formatCurrency(last.total_balance)}
+                      <span className={`font-bold ${finalBalance < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {formatCurrency(finalBalance)}
                       </span>
                     </div>
                     <div className="flex justify-between">

@@ -27,7 +27,7 @@ import {
   AssetAllocation,
   Province,
 } from './types/retirement';
-import { runSingleProjection } from './lib/projectionEngine';
+import { runSingleProjection, type ProjectionOverrides } from './lib/projectionEngine';
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
@@ -108,17 +108,11 @@ const IconNav = ({ currentStep, onNavigate, highestVisited }: { currentStep: num
               className={`icon-nav-button flex flex-col items-center justify-center p-2 rounded-lg transition-all duration-200 ease-in-out group ${
                 currentStep === index
                   ? 'bg-green-100'
-<<<<<<< HEAD
                   : index === highestVisited + 1
                   ? 'hover:bg-green-50 border border-dashed border-green-300'
                   : index <= highestVisited
                   ? 'hover:bg-gray-100'
                   : 'cursor-not-allowed opacity-40'
-=======
-                  : index <= highestVisited + 1
-                  ? 'hover:bg-gray-100'
-                  : 'cursor-not-allowed opacity-50'
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
               }`}
               style={{ minWidth: '85px' }}
             >
@@ -200,7 +194,9 @@ function App() {
 
   const activeWorkerRef = useRef<Worker | null>(null);
 
-  const runSimulation = async () => {
+  const runSimulation = async (scenarioOverride?: Scenario, overrides?: ProjectionOverrides) => {
+    const simScenario = scenarioOverride ?? scenario;
+
     if (activeWorkerRef.current) {
       activeWorkerRef.current.terminate();
       activeWorkerRef.current = null;
@@ -209,7 +205,7 @@ function App() {
     setIsCalculating(true);
     setMcProgress(null);
 
-    if (scenario.return_type === 'monte_carlo') {
+    if (simScenario.return_type === 'monte_carlo') {
       clearTaxCache();
       const worker = new MonteCarloWorker();
       activeWorkerRef.current = worker;
@@ -237,18 +233,29 @@ function App() {
           reject(err);
         };
         worker.postMessage({
-          scenario,
+          scenario: simScenario,
           incomeSources,
           savingsAccounts,
           expenseLadder,
           oneTimeEvents,
-          allocations: assetAllocations
+          allocations: assetAllocations,
+          overrides
         });
       }).catch(() => {});
     } else {
       await new Promise<void>(resolve => setTimeout(resolve, 0));
       const result = runSingleProjection(
-        scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents
+        simScenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        oneTimeEvents,
+        undefined,
+        undefined,
+        undefined,
+        assetAllocations,
+        undefined,
+        overrides
       );
       setProjections(result);
       setMonteCarloResult(undefined);
@@ -294,51 +301,28 @@ function App() {
 
   const handleApplySuggestion = async (suggestion: any) => {
     setActiveSuggestion(suggestion);
-    setIsCalculating(true);
+    setOptimizedProjections(null);
+    setOptimizedMonteCarloResult(undefined);
+
+    const overrides: ProjectionOverrides = suggestion?.overrides ?? {};
+    const scenarioUpdates: Partial<Scenario> = {};
+
+    if (overrides.retirementAge != null) {
+      scenarioUpdates.retirement_age = overrides.retirementAge;
+    }
+    if (overrides.withdrawalStrategy != null) {
+      scenarioUpdates.withdrawal_strategy = overrides.withdrawalStrategy;
+    }
+
+    const nextScenario = { ...scenario, ...scenarioUpdates };
+    if (Object.keys(scenarioUpdates).length > 0) {
+      setScenario(nextScenario);
+    }
 
     try {
-      if (scenario.return_type === 'monte_carlo') {
-        clearTaxCache();
-        const worker = new MonteCarloWorker();
-
-        await new Promise<void>((resolve, reject) => {
-          worker.onmessage = (e: MessageEvent) => {
-            const msg = e.data;
-            if (msg.type === 'result') {
-              setOptimizedProjections(msg.result.percentile_50);
-              setOptimizedMonteCarloResult(msg.result);
-              worker.terminate();
-              resolve();
-            } else if (msg.type === 'error') {
-              worker.terminate();
-              reject(new Error(msg.message));
-            }
-          };
-          worker.onerror = (err) => {
-            worker.terminate();
-            reject(err);
-          };
-          worker.postMessage({
-            scenario,
-            incomeSources,
-            savingsAccounts,
-            expenseLadder,
-            oneTimeEvents,
-            allocations: assetAllocations,
-            overrides: suggestion.overrides
-          });
-        });
-      } else {
-        const result = runSingleProjection(
-          scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents,
-          undefined, undefined, undefined, assetAllocations, undefined, suggestion.overrides
-        );
-        setOptimizedProjections(result);
-      }
+      await runSimulation(nextScenario, overrides);
     } catch (error) {
       console.error('Error applying suggestion:', error);
-    } finally {
-      setIsCalculating(false);
     }
   };
 
@@ -532,7 +516,7 @@ function App() {
                   AI Suggested Improvements
                 </button>
                 <button
-                  onClick={runSimulation}
+                  onClick={() => runSimulation()}
                   disabled={isCalculating}
                   className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed"
                 >

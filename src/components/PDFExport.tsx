@@ -1,11 +1,12 @@
 import { FileText } from 'lucide-react';
-import { YearlyProjection, Scenario, IncomeSource, SavingsAccount, ExpenseLadder } from '../types/retirement';
+import { YearlyProjection, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, MonteCarloResult } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
 
 interface PDFExportProps {
   projections: YearlyProjection[];
   scenario: Scenario;
+  monteCarloResult?: MonteCarloResult;
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
   expenseLadder: ExpenseLadder[];
@@ -15,20 +16,18 @@ interface PDFExportProps {
 export default function PDFExport({
   projections,
   scenario,
+  monteCarloResult,
   incomeSources,
   savingsAccounts,
   expenseLadder,
   inflationRate,
 }: PDFExportProps) {
   const handleExport = () => {
-<<<<<<< HEAD
     if (!projections || projections.length === 0) return;
-
-=======
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
     const lastYear = projections[projections.length - 1];
     const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
     const firstRetirementYear = projections.find(p => p.total_withdrawals > 0 || p.cpp > 0);
+    const successRate = monteCarloResult ? `${(monteCarloResult.success_rate * 100).toFixed(1)}%` : 'N/A';
     const pv = (amount: number, yearIndex: number) => presentValue(amount, yearIndex, inflationRate);
     const lastNetWorthPV = pv(lastYear.total_balance, lastYear.year - 1);
     const totalTaxPV = projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0);
@@ -73,7 +72,6 @@ export default function PDFExport({
         <td style="padding:4px 6px">Until age ${a.contribution_end_age}</td>
       </tr>`).join('');
 
-<<<<<<< HEAD
     const chartData = projections.map(p => ({
       age: p.age,
       balance: Math.round(pv(p.total_balance, p.year - 1)),
@@ -152,17 +150,11 @@ export default function PDFExport({
       <path d="${makePath(chartData.map(d => d.tax), maxTax)}" fill="none" stroke="#f59e0b" stroke-width="2"/>
       <text x="${padLeft + 4}" y="${padTop + 14}" font-size="9" fill="#f59e0b">Annual Tax (Today's $)</text>
     </svg>`;
-
-=======
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-<<<<<<< HEAD
   <meta name="viewport" content="width=device-width, initial-scale=1">
-=======
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   <title>Retirement Statement of Advice – ${scenario.name}</title>
   <style>
     body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 20px; }
@@ -171,24 +163,16 @@ export default function PDFExport({
     h3 { font-size: 12px; color: #374151; margin-top: 14px; margin-bottom: 4px; }
     table { width: 100%; border-collapse: collapse; font-size: 10px; }
     th { background: #1e3a5f; color: white; padding: 5px 6px; text-align: left; }
-<<<<<<< HEAD
-=======
     th[align=right], td[style*="right"] { text-align: right; }
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
     .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
     .metric { background: #f3f4f6; border-radius: 6px; padding: 8px 12px; }
     .metric-label { font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
     .metric-value { font-size: 16px; font-weight: bold; color: #1e3a5f; }
     .disclosure { background: #fef3c7; border: 1px solid #d97706; border-radius: 6px; padding: 10px 14px; font-size: 10px; color: #78350f; margin-top: 20px; }
-<<<<<<< HEAD
     .chart-box { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; margin: 10px 0; background: #fff; }
     .chart-title { font-size: 11px; font-weight: bold; color: #374151; margin-bottom: 6px; }
     .page-break { page-break-before: always; }
     @media print { body { margin: 0; } .page-break { page-break-before: always; } }
-=======
-    .page-break { page-break-before: always; }
-    @media print { body { margin: 0; } }
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   </style>
 </head>
 <body>
@@ -222,6 +206,10 @@ export default function PDFExport({
     <div class="metric">
       <div class="metric-label">First Retirement Income (Today's $)</div>
       <div class="metric-value">${firstRetirementYear ? formatCurrency(pv(firstRetirementYear.after_tax_income, firstRetirementYear.year - 1)) : '—'}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Success Rate</div>
+      <div class="metric-value">${successRate}</div>
     </div>
   </div>
 
@@ -262,7 +250,6 @@ export default function PDFExport({
 
   <div class="page-break"></div>
 
-<<<<<<< HEAD
   <h2>3. Portfolio Charts (Today's Dollars)</h2>
 
   <div class="chart-box">
@@ -281,9 +268,6 @@ export default function PDFExport({
   </div>
 
   <h2>4. Annual Projection Summary (Today's Dollars, every 3rd year)</h2>
-=======
-  <h2>3. Annual Projection Summary (Today's Dollars, every 3rd year)</h2>
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   <table>
     <tr>
       <th>Age</th>
@@ -310,7 +294,6 @@ export default function PDFExport({
 </body>
 </html>`;
 
-<<<<<<< HEAD
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -321,16 +304,6 @@ export default function PDFExport({
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-=======
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
-    if (!printWindow) return;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
->>>>>>> 538bd4e4bae1dbe4b52073e48f26dde06939678c
   };
 
   return (

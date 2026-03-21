@@ -179,6 +179,16 @@ export default function TaxVerificationPanel({
                       { label: 'OAS Benefits', value: selectedYear.oas, taxable: true },
                       { label: 'RRSP / RRIF Withdrawals', value: selectedYear.rrsp_withdrawal, taxable: true },
                       { label: `Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal)} total)`, value: selectedYear.non_reg_capital_gain_inclusion, taxable: 'partial' as const },
+                      {
+                        label: `Primary Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal_primary ?? 0)})`,
+                        value: selectedYear.non_reg_capital_gain_inclusion_primary ?? 0,
+                        taxable: 'partial' as const
+                      },
+                      {
+                        label: `Spouse Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal_spouse ?? 0)})`,
+                        value: selectedYear.non_reg_capital_gain_inclusion_spouse ?? 0,
+                        taxable: 'partial' as const
+                      },
                       { label: 'TFSA Withdrawals', value: selectedYear.tfsa_withdrawal, taxable: false },
                     ].filter(r => r.value > 0).map((row, i) => (
                       <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-gray-50">

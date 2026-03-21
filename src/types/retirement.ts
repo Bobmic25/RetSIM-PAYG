@@ -57,6 +57,7 @@ export interface AssetAllocation {
   id?: string;
   scenario_id?: string;
   account_type: AccountType;
+  person?: Person;
   stocks: number;
   bonds: number;
   cash: number;
@@ -129,6 +130,8 @@ export interface YearlyProjection {
   tfsa_withdrawal: number;
   rrsp_withdrawal: number;
   non_reg_withdrawal: number;
+  non_reg_withdrawal_primary?: number;
+  non_reg_withdrawal_spouse?: number;
   total_withdrawals: number;
   provincial_tax: number;
   federal_tax: number;
@@ -144,13 +147,21 @@ export interface YearlyProjection {
   tfsa_contribution: number;
   fhsa_contribution: number;
   non_reg_contribution: number;
+  non_reg_contribution_primary?: number;
+  non_reg_contribution_spouse?: number;
   non_reg_surplus: number;
   rrsp_balance: number;
   tfsa_balance: number;
   fhsa_balance: number;
   non_reg_balance: number;
+  non_reg_balance_primary?: number;
+  non_reg_balance_spouse?: number;
   non_reg_acb: number;
+  non_reg_acb_primary?: number;
+  non_reg_acb_spouse?: number;
   non_reg_capital_gain_inclusion: number;
+  non_reg_capital_gain_inclusion_primary?: number;
+  non_reg_capital_gain_inclusion_spouse?: number;
   primary_salary: number;
   total_balance: number;
   survival_probability?: number;

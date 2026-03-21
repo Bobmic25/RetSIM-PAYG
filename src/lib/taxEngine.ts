@@ -594,8 +594,31 @@ export function calculateTerminalTax(
   province: Province,
   yearIndex: number = 0,
   inflationRate: number = 2.3,
-  age: number = 0
+  age: number = 0,
+  spouseRrspBalance?: number,
+  spouseNonRegBalance?: number,
+  spouseNonRegAcb?: number,
+  spouseAge?: number
 ): { terminalTax: number; netEstateValue: number; probateFee?: number } {
+  if (spouseRrspBalance != null || spouseNonRegBalance != null || spouseNonRegAcb != null) {
+    const primary = calculateTerminalTax(rrspBalance, nonRegBalance, nonRegAcb, province, yearIndex, inflationRate, age);
+    const spouse = calculateTerminalTax(
+      spouseRrspBalance ?? 0,
+      spouseNonRegBalance ?? 0,
+      spouseNonRegAcb ?? 0,
+      province,
+      yearIndex,
+      inflationRate,
+      spouseAge ?? age
+    );
+
+    return {
+      terminalTax: primary.terminalTax + spouse.terminalTax,
+      netEstateValue: primary.netEstateValue + spouse.netEstateValue,
+      probateFee: (primary.probateFee ?? 0) + (spouse.probateFee ?? 0)
+    };
+  }
+
   const capitalGain = Math.max(0, nonRegBalance - nonRegAcb);
   const taxableCapitalGain = calcTieredCapitalGainInclusion(capitalGain, yearIndex, inflationRate);
   const totalTerminalIncome = rrspBalance + taxableCapitalGain;
