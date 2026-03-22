@@ -83,7 +83,7 @@ export default function TaxVerificationPanel({
     : [];
 
   const bestNetWorth = highlightRows.length > 0 ? Math.max(...highlightRows.map(r => r.final_net_worth)) : 0;
-  const lowestTax = highlightRows.length > 0 ? Math.min(...highlightRows.map(r => r.total_taxes_paid)) : Infinity;
+  const lowestTax = highlightRows.length > 0 ? Math.min(...highlightRows.map(r => r.retirement_taxes_paid)) : Infinity;
 
   return (
     <div className="space-y-6">
@@ -263,7 +263,7 @@ export default function TaxVerificationPanel({
             </div>
           ) : (
             <div>
-              <p className="text-xs text-gray-500 mb-3">Showing three key start-age combinations. Green highlights the best outcome per metric.</p>
+              <p className="text-xs text-gray-500 mb-3">Showing three key start-age combinations with retirement-aligned metrics. Green highlights the best outcome per metric.</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -271,14 +271,14 @@ export default function TaxVerificationPanel({
                       <th className="text-left px-4 py-3 rounded-tl-lg text-gray-600 font-semibold">CPP Start</th>
                       <th className="text-left px-4 py-3 text-gray-600 font-semibold">OAS Start</th>
                       <th className="text-right px-4 py-3 text-gray-600 font-semibold">Final Net Worth</th>
-                      <th className="text-right px-4 py-3 text-gray-600 font-semibold">Lifetime Tax</th>
-                      <th className="text-right px-4 py-3 rounded-tr-lg text-gray-600 font-semibold">Total Withdrawals</th>
+                      <th className="text-right px-4 py-3 text-gray-600 font-semibold">Retirement Tax</th>
+                      <th className="text-right px-4 py-3 rounded-tr-lg text-gray-600 font-semibold">Retirement Withdrawals</th>
                     </tr>
                   </thead>
                   <tbody>
                     {highlightRows.map((row, i) => {
                       const isBestNW = row.final_net_worth === bestNetWorth;
-                      const isBestTax = row.total_taxes_paid === lowestTax;
+                      const isBestTax = row.retirement_taxes_paid === lowestTax;
                       return (
                         <tr key={i} className={`border-t border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                           <td className="px-4 py-3 font-semibold text-gray-900">Age {row.cpp_start_age}</td>
@@ -288,10 +288,10 @@ export default function TaxVerificationPanel({
                             {isBestNW && <span className="ml-1.5 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Best</span>}
                           </td>
                           <td className={`px-4 py-3 text-right font-medium ${isBestTax ? 'text-green-700' : 'text-gray-800'}`}>
-                            {formatCurrency(row.total_taxes_paid)}
+                            {formatCurrency(row.retirement_taxes_paid)}
                             {isBestTax && <span className="ml-1.5 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lowest</span>}
                           </td>
-                          <td className="px-4 py-3 text-right text-gray-700">{formatCurrency(row.total_withdrawals)}</td>
+                          <td className="px-4 py-3 text-right text-gray-700">{formatCurrency(row.retirement_withdrawals)}</td>
                         </tr>
                       );
                     })}

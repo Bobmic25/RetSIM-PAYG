@@ -120,6 +120,8 @@ export default function ResultsDashboard({
   const [showCurrentPie, setShowCurrentPie] = useState(false);
   const [showFinalPie, setShowFinalPie] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  // Used to notify ProjectionTable to re-run the CPP/OAS optimization after a suggestion is applied.
+  const [optimTrigger, setOptimTrigger] = useState(0);
 
   // Generate suggestions when projections change
   useEffect(() => {
@@ -128,6 +130,15 @@ export default function ResultsDashboard({
       setSuggestions(generatedSuggestions);
     }
   }, [projections, scenario, monteCarloResult]);
+
+  // When the AI Suggested Improvements panel is opened, switch to the Data Table tab
+  // and trigger the CPP/OAS optimization so the results appear below the suggestions.
+  useEffect(() => {
+    if (showAISuggestions) {
+      setActiveTab('table');
+      setOptimTrigger(t => t + 1);
+    }
+  }, [showAISuggestions]);
 
   if (!projections.length) {
     return (
@@ -159,6 +170,11 @@ export default function ResultsDashboard({
   const totalTaxPv = showTodayDollars
     ? projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
     : totalTax;
+
+  // Retirement-period only tax — aligns with the CPP/OAS optimization table metric.
+  const totalRetirementTaxPv = retirementProjections.reduce(
+    (s, p) => s + pv(p.total_tax, p.year - 1), 0
+  );
 
   const totalRetirementWithdrawals = retirementProjections.reduce(
     (s, p) => s + pv(p.total_withdrawals, p.year - 1), 0
@@ -361,9 +377,9 @@ export default function ResultsDashboard({
         />
         <StatCard
           icon={ReceiptText}
-          label="Total Tax Paid"
-          value={formatCurrency(totalTaxPv)}
-          sub={`All years${showTodayDollars ? " (today's $)" : ''}`}
+          label="Total Tax in Retirement"
+          value={formatCurrency(totalRetirementTaxPv)}
+          sub={`All post-retirement${showTodayDollars ? " (today's $)" : ''}`}
           color="bg-orange-500"
           onInfoClick={() => setShowTaxModal(true)}
         />
@@ -404,7 +420,11 @@ export default function ResultsDashboard({
         <AISuggestionsPanel
           suggestions={suggestions}
           activeSuggestion={activeSuggestion || null}
-          onApplySuggestion={onApplySuggestion}
+          onApplySuggestion={(s) => {
+            onApplySuggestion(s);
+            setActiveTab('table');
+            setOptimTrigger(t => t + 1);
+          }}
           onResetOptimization={onResetOptimization}
           defaultMetrics={calculateComparisonMetrics(projections)}
           optimizedMetrics={optimizedProjections ? calculateComparisonMetrics(optimizedProjections) : undefined}
@@ -492,6 +512,7 @@ export default function ResultsDashboard({
               oneTimeEvents={oneTimeEvents}
               showTodayDollars={showTodayDollars}
               inflationRate={inflationRate}
+              autoRunTrigger={optimTrigger}
             />
           )}
           {activeTab === 'verify' && (

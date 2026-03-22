@@ -364,6 +364,7 @@ function App() {
   }) => {
     setScenario({
       ...data.scenario,
+      return_type: data.scenario.return_type ?? 'linear',
       rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2
     });
     setIncomeSources(data.incomeSources);

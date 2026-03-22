@@ -16,7 +16,7 @@ import {
   calculateTerminalTax,
   getMarginalRate
 } from './taxEngine';
-import { calculateCPPBenefit, calculateOASBenefit, adjustForInflation, calculateGISBenefit, applyOAS75Bump, type GISResult } from './benefitsEngine';
+import { calculateCPPBenefit, calculateOASBenefit, adjustForInflation, calculateGISBenefit, applyOAS75Bump, presentValue, type GISResult } from './benefitsEngine';
 import {
   generateReturnSequence,
   generateStochasticInflationSequence,
@@ -1197,9 +1197,17 @@ export async function runMonteCarloSimulation(
 export interface CppOasOptimizationRow {
   cpp_start_age: number;
   oas_start_age: number;
+  retirement_withdrawals: number;
+  retirement_taxes_paid: number;
+  recommendation_score: number;
   total_withdrawals: number;
   total_taxes_paid: number;
   final_net_worth: number;
+}
+
+interface CppOasOptimizationOptions {
+  showTodayDollars?: boolean;
+  inflationRate?: number;
 }
 
 export function runCppOasOptimization(
@@ -1207,26 +1215,78 @@ export function runCppOasOptimization(
   incomeSources: IncomeSource[],
   savingsAccounts: SavingsAccount[],
   expenseLadder: ExpenseLadder[],
-  oneTimeEvents: OneTimeEvent[]
+  oneTimeEvents: OneTimeEvent[],
+  options: CppOasOptimizationOptions = {}
 ): CppOasOptimizationRow[] {
-  const combinations = [
-    { cpp: 60, oas: 65 }, { cpp: 61, oas: 65 }, { cpp: 62, oas: 65 },
-    { cpp: 63, oas: 65 }, { cpp: 64, oas: 65 }, { cpp: 65, oas: 65 },
-    { cpp: 66, oas: 66 }, { cpp: 67, oas: 67 }, { cpp: 68, oas: 68 },
-    { cpp: 69, oas: 69 }, { cpp: 70, oas: 70 }
-  ];
+  const showTodayDollars = options.showTodayDollars ?? false;
+  const inflationRate = options.inflationRate ?? scenario.inflation_rate;
 
-  return combinations.map(({ cpp, oas }) => {
+  const combinations: Array<{ cpp: number; oas: number }> = [];
+  for (let cpp = 60; cpp <= 70; cpp += 1) {
+    for (let oas = 65; oas <= 70; oas += 1) {
+      combinations.push({ cpp, oas });
+    }
+  }
+
+  const pv = (amount: number, yearIndex: number) =>
+    showTodayDollars ? presentValue(amount, yearIndex, inflationRate) : amount;
+
+  const rows = combinations.map(({ cpp, oas }) => {
     const projections = runSingleProjection(
       scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents,
       undefined, cpp, oas
     );
+
+    const lastSalaryAge = projections.reduce(
+      (maxAge, p) => (p.salary > 0 ? Math.max(maxAge, p.age) : maxAge),
+      -1
+    );
+    const retirementStartAge = lastSalaryAge >= 0 ? lastSalaryAge + 1 : scenario.retirement_age;
+    const retirementProjections = projections.filter(p => p.age >= retirementStartAge);
+
+    const retirementWithdrawals = retirementProjections.reduce(
+      (sum, p) => sum + pv(p.total_withdrawals, p.year - 1),
+      0
+    );
+    const retirementTaxesPaid = retirementProjections.reduce(
+      (sum, p) => sum + pv(p.total_tax, p.year - 1),
+      0
+    );
+
     return {
       cpp_start_age: cpp,
       oas_start_age: oas,
-      total_withdrawals: projections.reduce((s, p) => s + p.total_withdrawals, 0),
-      total_taxes_paid: projections.reduce((s, p) => s + p.total_tax, 0),
-      final_net_worth: projections[projections.length - 1]?.total_balance || 0
+      retirement_withdrawals: retirementWithdrawals,
+      retirement_taxes_paid: retirementTaxesPaid,
+      recommendation_score: 0,
+      // Backward compatibility for components currently bound to these fields.
+      total_withdrawals: retirementWithdrawals,
+      total_taxes_paid: retirementTaxesPaid,
+      final_net_worth: pv(projections[projections.length - 1]?.total_balance || 0, projections.length - 1)
     };
   });
+
+  const minWithdrawals = Math.min(...rows.map(r => r.retirement_withdrawals));
+  const maxWithdrawals = Math.max(...rows.map(r => r.retirement_withdrawals));
+  const minTaxes = Math.min(...rows.map(r => r.retirement_taxes_paid));
+  const maxTaxes = Math.max(...rows.map(r => r.retirement_taxes_paid));
+
+  const withdrawalRange = maxWithdrawals - minWithdrawals;
+  const taxRange = maxTaxes - minTaxes;
+
+  return rows
+    .map(row => {
+      const withdrawalScore = withdrawalRange > 0
+        ? (row.retirement_withdrawals - minWithdrawals) / withdrawalRange
+        : 1;
+      const taxScore = taxRange > 0
+        ? (maxTaxes - row.retirement_taxes_paid) / taxRange
+        : 1;
+      const recommendationScore = withdrawalScore * 0.6 + taxScore * 0.4;
+      return {
+        ...row,
+        recommendation_score: recommendationScore
+      };
+    })
+    .sort((a, b) => b.recommendation_score - a.recommendation_score);
 }

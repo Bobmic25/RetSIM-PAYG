@@ -128,7 +128,7 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
                 scenario.return_type === type ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
               }`}>
               {type === 'linear' ? (
-                'Linear (Fixed / Step)'
+                <span className="flex items-center justify-center gap-1.5">Linear (Fixed / Step)<span className="text-[10px] font-normal bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Default</span></span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
                   Monte Carlo (Volatile)
