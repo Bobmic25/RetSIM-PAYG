@@ -32,11 +32,26 @@ export interface LiveTaxData {
 type RawBracket = { min: number; max: number | null; rate: number };
 
 function normalizeBrackets(raw: RawBracket[]): TaxBracket[] {
-  return raw.map(b => ({
-    min: b.min,
-    max: b.max === null ? Infinity : b.max,
-    rate: b.rate,
-  }));
+  return raw.map(b => {
+    const min = Number(b.min);
+    const max = b.max === null ? Infinity : Number(b.max);
+    const rate = Number(b.rate);
+
+    if (!Number.isFinite(min) || (!Number.isFinite(max) && max !== Infinity) || !Number.isFinite(rate)) {
+      throw new Error('Invalid tax bracket payload');
+    }
+
+    return {
+      min,
+      max,
+      rate,
+    };
+  });
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 }
 
 let cachedData: LiveTaxData | null = null;
@@ -65,28 +80,72 @@ export async function fetchLiveTaxData(taxYear = 2026): Promise<LiveTaxData | nu
       ])
     ) as Record<Province, TaxBracket[]>;
 
+    const parsedFederalBpa = toFiniteNumber(data.federal_bpa);
+    const parsedFederalBpaMin = toFiniteNumber(data.federal_bpa_min);
+    const parsedFederalBpaPhaseOutStart = toFiniteNumber(data.federal_bpa_phase_out_start);
+    const parsedFederalBpaPhaseOutEnd = toFiniteNumber(data.federal_bpa_phase_out_end);
+    const parsedCppYmpe = toFiniteNumber(data.cpp_ympe);
+    const parsedCppYmpe2 = toFiniteNumber(data.cpp_ympe2);
+    const parsedCppBasicExemption = toFiniteNumber(data.cpp_basic_exemption);
+    const parsedCppRate = toFiniteNumber(data.cpp_rate);
+    const parsedCpp2Rate = toFiniteNumber(data.cpp2_rate);
+    const parsedEiMaxInsurable = toFiniteNumber(data.ei_max_insurable);
+    const parsedEiRate = toFiniteNumber(data.ei_rate);
+    const parsedOasClawbackThreshold = toFiniteNumber(data.oas_clawback_threshold);
+    const parsedOasMaxClawbackThreshold = toFiniteNumber(data.oas_max_clawback_threshold);
+
+    // Capital gains fields are optional for compatibility with older datasets.
+    const parsedCapitalGainsTier1Threshold = toFiniteNumber(data.capital_gains_tier1_threshold);
+    const parsedCapitalGainsInclusionRateTier1 = toFiniteNumber(data.capital_gains_inclusion_rate_tier1);
+    const parsedCapitalGainsInclusionRateTier2 = toFiniteNumber(data.capital_gains_inclusion_rate_tier2);
+
+    if (
+      parsedFederalBpa === null ||
+      parsedFederalBpaMin === null ||
+      parsedFederalBpaPhaseOutStart === null ||
+      parsedFederalBpaPhaseOutEnd === null ||
+      parsedCppYmpe === null ||
+      parsedCppYmpe2 === null ||
+      parsedCppBasicExemption === null ||
+      parsedCppRate === null ||
+      parsedCpp2Rate === null ||
+      parsedEiMaxInsurable === null ||
+      parsedEiRate === null ||
+      parsedOasClawbackThreshold === null ||
+      parsedOasMaxClawbackThreshold === null
+    ) {
+      return null;
+    }
+
+    const rawProvincialBpa = data.provincial_bpa as Record<string, unknown>;
+    const provincialBpa = Object.fromEntries(
+      Object.entries(rawProvincialBpa ?? {}).flatMap(([prov, value]) => {
+        const parsed = toFiniteNumber(value);
+        return parsed === null ? [] : [[prov, parsed]];
+      })
+    ) as Record<Province, number>;
+
     const result: LiveTaxData = {
       taxYear: data.tax_year,
       federalBrackets: normalizeBrackets(data.federal_brackets as RawBracket[]),
       provincialBrackets,
-      federalBpa: Number(data.federal_bpa),
-      federalBpaMin: Number(data.federal_bpa_min),
-      federalBpaPhaseOutStart: Number(data.federal_bpa_phase_out_start),
-      federalBpaPhaseOutEnd: Number(data.federal_bpa_phase_out_end),
-      provincialBpa: data.provincial_bpa as Record<Province, number>,
-      cppYmpe: Number(data.cpp_ympe),
-      cppYmpe2: Number(data.cpp_ympe2),
-      cppBasicExemption: Number(data.cpp_basic_exemption),
-      cppRate: Number(data.cpp_rate),
-      cpp2Rate: Number(data.cpp2_rate),
-      eiMaxInsurable: Number(data.ei_max_insurable),
-      eiRate: Number(data.ei_rate),
-      oasClawbackThreshold: Number(data.oas_clawback_threshold),
-      oasMaxClawbackThreshold: Number(data.oas_max_clawback_threshold),
-      // Map new database fields to the interface
-      capitalGainsTier1Threshold: Number(data.capital_gains_tier1_threshold),
-      capitalGainsInclusionRateTier1: Number(data.capital_gains_inclusion_rate_tier1),
-      capitalGainsInclusionRateTier2: Number(data.capital_gains_inclusion_rate_tier2),
+      federalBpa: parsedFederalBpa,
+      federalBpaMin: parsedFederalBpaMin,
+      federalBpaPhaseOutStart: parsedFederalBpaPhaseOutStart,
+      federalBpaPhaseOutEnd: parsedFederalBpaPhaseOutEnd,
+      provincialBpa,
+      cppYmpe: parsedCppYmpe,
+      cppYmpe2: parsedCppYmpe2,
+      cppBasicExemption: parsedCppBasicExemption,
+      cppRate: parsedCppRate,
+      cpp2Rate: parsedCpp2Rate,
+      eiMaxInsurable: parsedEiMaxInsurable,
+      eiRate: parsedEiRate,
+      oasClawbackThreshold: parsedOasClawbackThreshold,
+      oasMaxClawbackThreshold: parsedOasMaxClawbackThreshold,
+      capitalGainsTier1Threshold: parsedCapitalGainsTier1Threshold ?? 250000,
+      capitalGainsInclusionRateTier1: parsedCapitalGainsInclusionRateTier1 ?? 0.5,
+      capitalGainsInclusionRateTier2: parsedCapitalGainsInclusionRateTier2 ?? 0.667,
       sourceUrl: data.source_url,
       fetchedAt: data.fetched_at,
       notes: data.notes,

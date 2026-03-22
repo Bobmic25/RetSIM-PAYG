@@ -226,15 +226,19 @@ const ON_HEALTH_PREMIUM_BRACKETS_2026: Array<{ threshold: number; base: number; 
   { threshold: 0, base: 0, rate: 0, incomeBase: 0 }
 ];
 
+function finiteOrDefault(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? (value as number) : fallback;
+}
+
 export function calcTieredCapitalGainInclusion(capitalGain: number, yearIndex: number = 0, inflationRate: number = 2.3): number {
   if (capitalGain <= 0) return 0;
   const factor = yearIndex > 0 ? Math.pow(1 + inflationRate / 100, yearIndex) : 1;
   
   // Use values from LiveTaxData if available, falling back to constants
   const live = _activeLiveData;
-  const thresholdBase = live?.capitalGainsTier1Threshold ?? CAPITAL_GAINS_TIER1_THRESHOLD_2026;
-  const rate1 = live?.capitalGainsInclusionRateTier1 ?? CAPITAL_GAINS_INCLUSION_RATE_TIER1;
-  const rate2 = live?.capitalGainsInclusionRateTier2 ?? CAPITAL_GAINS_INCLUSION_RATE_TIER2;
+  const thresholdBase = finiteOrDefault(live?.capitalGainsTier1Threshold, CAPITAL_GAINS_TIER1_THRESHOLD_2026);
+  const rate1 = finiteOrDefault(live?.capitalGainsInclusionRateTier1, CAPITAL_GAINS_INCLUSION_RATE_TIER1);
+  const rate2 = finiteOrDefault(live?.capitalGainsInclusionRateTier2, CAPITAL_GAINS_INCLUSION_RATE_TIER2);
 
   const threshold = thresholdBase * factor;
   if (capitalGain <= threshold) {
@@ -291,13 +295,15 @@ export function getTaxData(
 
   const baseFederal = resolved ? resolved.federalBrackets : FEDERAL_BRACKETS_2026;
   const baseProv = resolved ? (resolved.provincialBrackets[province] ?? PROVINCIAL_BRACKETS_2026[province]) : PROVINCIAL_BRACKETS_2026[province];
-  const baseFedBPA = resolved ? resolved.federalBpa : FEDERAL_BPA_2026;
-  const baseFedBPAMin = resolved ? resolved.federalBpaMin : FEDERAL_BPA_MIN_2026;
-  const baseFedPhaseStart = resolved ? resolved.federalBpaPhaseOutStart : FEDERAL_BPA_PHASE_OUT_START_2026;
-  const baseFedPhaseEnd = resolved ? resolved.federalBpaPhaseOutEnd : FEDERAL_BPA_PHASE_OUT_END_2026;
-  const baseProvBPA = resolved ? (resolved.provincialBpa[province] ?? PROVINCIAL_BPA_2026[province]) : PROVINCIAL_BPA_2026[province];
-  const baseOasThreshold = resolved ? resolved.oasClawbackThreshold : OAS_CLAWBACK_THRESHOLD_2026;
-  const baseOasMax = resolved ? resolved.oasMaxClawbackThreshold : OAS_MAX_CLAWBACK_THRESHOLD_2026;
+  const baseFedBPA = resolved ? finiteOrDefault(resolved.federalBpa, FEDERAL_BPA_2026) : FEDERAL_BPA_2026;
+  const baseFedBPAMin = resolved ? finiteOrDefault(resolved.federalBpaMin, FEDERAL_BPA_MIN_2026) : FEDERAL_BPA_MIN_2026;
+  const baseFedPhaseStart = resolved ? finiteOrDefault(resolved.federalBpaPhaseOutStart, FEDERAL_BPA_PHASE_OUT_START_2026) : FEDERAL_BPA_PHASE_OUT_START_2026;
+  const baseFedPhaseEnd = resolved ? finiteOrDefault(resolved.federalBpaPhaseOutEnd, FEDERAL_BPA_PHASE_OUT_END_2026) : FEDERAL_BPA_PHASE_OUT_END_2026;
+  const baseProvBPA = resolved
+    ? finiteOrDefault(resolved.provincialBpa[province], PROVINCIAL_BPA_2026[province])
+    : PROVINCIAL_BPA_2026[province];
+  const baseOasThreshold = resolved ? finiteOrDefault(resolved.oasClawbackThreshold, OAS_CLAWBACK_THRESHOLD_2026) : OAS_CLAWBACK_THRESHOLD_2026;
+  const baseOasMax = resolved ? finiteOrDefault(resolved.oasMaxClawbackThreshold, OAS_MAX_CLAWBACK_THRESHOLD_2026) : OAS_MAX_CLAWBACK_THRESHOLD_2026;
 
   const baseYear = resolved ? resolved.taxYear : 2026;
   const fetchedAt = resolved?.fetchedAt;

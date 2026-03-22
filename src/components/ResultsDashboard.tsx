@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, PieChart as PieChartIcon } from 'lucide-react';
+import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, AlertTriangle, PieChart as PieChartIcon } from 'lucide-react';
 import PDFExport from './PDFExport';
 import NetWorthChart from './NetWorthChart';
 import CashFlowChart from './CashFlowChart';
@@ -317,6 +317,23 @@ export default function ResultsDashboard({
           </button>
         </div>
       </div>
+
+      {taxDataStatus === 'fallback' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-amber-900">
+              Live tax data could not be verified. Using built-in 2026 tax constants for this run.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab('verify')}
+            className="text-xs font-semibold text-amber-800 hover:text-amber-900 underline whitespace-nowrap"
+          >
+            View details
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard
