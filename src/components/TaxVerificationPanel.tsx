@@ -61,7 +61,7 @@ export default function TaxVerificationPanel({
   const showAttributedNonRegDetails = primaryNonRegGain > 0 || spouseNonRegGain > 0;
 
   const taxableIncome = selectedYear
-    ? selectedYear.salary + selectedYear.db_pension + selectedYear.cpp + selectedYear.oas + selectedYear.rrsp_withdrawal + selectedYear.non_reg_capital_gain_inclusion
+    ? selectedYear.salary + selectedYear.db_pension + selectedYear.cpp + selectedYear.oas + selectedYear.rrsp_withdrawal + selectedYear.non_reg_capital_gain_inclusion - (selectedYear.rrsp_salary_deduction ?? 0)
     : 0;
   const effectiveRate = selectedYear && taxableIncome > 0 ? selectedYear.total_tax / taxableIncome : 0;
 

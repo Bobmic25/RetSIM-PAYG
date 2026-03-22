@@ -498,6 +498,7 @@ function App() {
                   scenario={scenario}
                   incomeSources={incomeSources}
                   savingsAccounts={savingsAccounts}
+                  assetAllocations={assetAllocations}
                   expenseLadder={expenseLadder}
                   oneTimeEvents={oneTimeEvents}
                   onSaveComparison={saveCurrentResult}

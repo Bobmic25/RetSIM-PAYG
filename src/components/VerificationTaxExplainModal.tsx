@@ -142,10 +142,12 @@ export default function VerificationTaxExplainModal({
   const spouseSalary = isCouple ? Math.max(0, selectedYear.salary - primarySalary) : 0;
   const primaryRrsp = selectedYear.rrsp_withdrawal_primary ?? selectedYear.rrsp_withdrawal;
   const spouseRrsp = selectedYear.rrsp_withdrawal_spouse ?? 0;
+  const primaryRrspSalaryDeduction = selectedYear.rrsp_salary_deduction_primary ?? selectedYear.rrsp_salary_deduction ?? 0;
+  const spouseRrspSalaryDeduction = selectedYear.rrsp_salary_deduction_spouse ?? 0;
   const primaryCapitalGain = selectedYear.non_reg_capital_gain_inclusion_primary ?? selectedYear.non_reg_capital_gain_inclusion;
   const spouseCapitalGain = selectedYear.non_reg_capital_gain_inclusion_spouse ?? 0;
-  const primaryTaxableIncome = primarySalary + primaryBenefits.total + primaryRrsp + primaryCapitalGain;
-  const spouseTaxableIncome = spouseSalary + (spouseBenefits?.total ?? 0) + spouseRrsp + spouseCapitalGain;
+  const primaryTaxableIncome = Math.max(0, primarySalary - primaryRrspSalaryDeduction) + primaryBenefits.total + primaryRrsp + primaryCapitalGain;
+  const spouseTaxableIncome = Math.max(0, spouseSalary - spouseRrspSalaryDeduction) + (spouseBenefits?.total ?? 0) + spouseRrsp + spouseCapitalGain;
   const primaryAudit = computeTaxAudit(
     primaryTaxableIncome,
     scenario.province,
@@ -254,6 +256,7 @@ export default function VerificationTaxExplainModal({
               <DetailRow label="Guaranteed Income" value={`${formatCurrency(selectedYear.cpp + selectedYear.oas + selectedYear.db_pension)} total`} />
               <DetailRow label="Primary Guaranteed Income" value={formatCurrency(primaryBenefits.total)} />
               {spouseBenefits && <DetailRow label="Spouse Guaranteed Income" value={formatCurrency(spouseBenefits.total)} />}
+              <DetailRow label="Salary-Funded RRSP Deduction" value={`${formatCurrency(selectedYear.rrsp_salary_deduction ?? 0)} total${selectedYear.rrsp_salary_deduction ? ' reducing taxable salary this year' : ''}`} />
               <DetailRow label="Non-Registered Withdrawal" value={formatCurrency(selectedYear.non_reg_withdrawal)} />
               <DetailRow label="RRSP / RRIF Withdrawal" value={`${formatCurrency(selectedYear.rrsp_withdrawal)}. ${rrspScheduleNote}`} />
               <DetailRow label="Non-Reg Growth Ratio" value={`${formatPercent(growthRatio, 2)} from (${formatCurrency(selectedYear.non_reg_balance)} - ${formatCurrency(selectedYear.non_reg_acb)}) / ${formatCurrency(selectedYear.non_reg_balance || 0)}`} />

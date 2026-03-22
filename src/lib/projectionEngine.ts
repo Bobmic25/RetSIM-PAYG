@@ -34,6 +34,13 @@ interface AccountBalances {
   non_reg_spouse_acb: number;
 }
 
+interface ContributionPlan extends AccountBalances {
+  rrsp_salary_deduction_primary: number;
+  rrsp_salary_deduction_spouse: number;
+  salary_funded_after_tax_primary: number;
+  salary_funded_after_tax_spouse: number;
+}
+
 export interface ProjectionOverrides {
   retirementAge?: number;
   expenseMultiplier?: number;
@@ -104,8 +111,21 @@ function calculateContributions(
   accounts: SavingsAccount[],
   yearFromStart: number,
   inflationRate: number
-): AccountBalances {
-  const balances: AccountBalances = { rrsp: 0, rrsp_spouse: 0, tfsa: 0, fhsa: 0, non_reg_primary: 0, non_reg_primary_acb: 0, non_reg_spouse: 0, non_reg_spouse_acb: 0 };
+): ContributionPlan {
+  const balances: ContributionPlan = {
+    rrsp: 0,
+    rrsp_spouse: 0,
+    tfsa: 0,
+    fhsa: 0,
+    non_reg_primary: 0,
+    non_reg_primary_acb: 0,
+    non_reg_spouse: 0,
+    non_reg_spouse_acb: 0,
+    rrsp_salary_deduction_primary: 0,
+    rrsp_salary_deduction_spouse: 0,
+    salary_funded_after_tax_primary: 0,
+    salary_funded_after_tax_spouse: 0,
+  };
   accounts.forEach(account => {
     if (age <= account.contribution_end_age) {
       const annual = account.monthly_contribution * 12;
@@ -113,22 +133,34 @@ function calculateContributions(
       const contribution = inflationLinked
         ? adjustForInflation(annual, yearFromStart, inflationRate)
         : annual;
+      const deductFromSalary = account.deduct_from_salary !== false;
       if (account.account_type === 'rrsp') {
         if (account.person === 'spouse') {
           balances.rrsp_spouse += contribution;
+          if (deductFromSalary) balances.rrsp_salary_deduction_spouse += contribution;
         } else {
           balances.rrsp += contribution;
+          if (deductFromSalary) balances.rrsp_salary_deduction_primary += contribution;
         }
       } else if (account.account_type === 'non_reg') {
         if (account.person === 'spouse') {
           balances.non_reg_spouse += contribution;
           balances.non_reg_spouse_acb += contribution;
+          if (deductFromSalary) balances.salary_funded_after_tax_spouse += contribution;
         } else {
           balances.non_reg_primary += contribution;
           balances.non_reg_primary_acb += contribution;
+          if (deductFromSalary) balances.salary_funded_after_tax_primary += contribution;
         }
       } else {
         balances[account.account_type] += contribution;
+        if (deductFromSalary) {
+          if (account.person === 'spouse') {
+            balances.salary_funded_after_tax_spouse += contribution;
+          } else {
+            balances.salary_funded_after_tax_primary += contribution;
+          }
+        }
       }
     }
   });
@@ -899,13 +931,22 @@ export function runSingleProjection(
     const nonRegGainEstimate = totalNonRegForGis > 0 && totalNonRegForGis > totalNonRegAcbForGis
       ? calcTieredCapitalGainInclusion((totalNonRegForGis - totalNonRegAcbForGis) * 0.04, year, effectiveInflation)
       : 0;
-    const preGisOtherIncome = salary + totalCpp + totalDbPension + rrifWithdrawalEstimate + nonRegGainEstimate;
+    const contributions = calculateContributions(age, savingsAccounts, year, effectiveInflation);
+    const primaryRrspSalaryDeduction = contributions.rrsp_salary_deduction_primary;
+    const spouseRrspSalaryDeduction = contributions.rrsp_salary_deduction_spouse;
+    const totalRrspSalaryDeduction = primaryRrspSalaryDeduction + spouseRrspSalaryDeduction;
+    const totalAfterTaxSalaryFundedContributions = contributions.salary_funded_after_tax_primary + contributions.salary_funded_after_tax_spouse;
+    const totalSalaryFundedContributions = totalRrspSalaryDeduction + totalAfterTaxSalaryFundedContributions;
+    const primaryTaxableSalary = Math.max(0, primarySalary - primaryRrspSalaryDeduction);
+    const spouseTaxableSalary = Math.max(0, spouseSalary - spouseRrspSalaryDeduction);
+    const taxableSalary = primaryTaxableSalary + spouseTaxableSalary;
+
+    const preGisOtherIncome = taxableSalary + totalCpp + totalDbPension + rrifWithdrawalEstimate + nonRegGainEstimate;
     const gisResult = calculateGISBenefit(
       preGisOtherIncome, isCouple, age, oasReceiving, year, effectiveInflation
     );
     const gisAmount = gisResult.gisAmount;
 
-    const contributions = calculateContributions(age, savingsAccounts, year, effectiveInflation);
     balances.rrsp += contributions.rrsp;
     balances.rrsp_spouse += contributions.rrsp_spouse;
     const availableTfsaRoom = getAvailableTfsaRoom(age, scenario.current_age, year, cumulativeTfsaContributed);
@@ -929,11 +970,12 @@ export function runSingleProjection(
 
     const livingExpenses = adjustForInflation(getExpensesForAge(age, expenseLadder), year, effectiveInflation) * expenseMultiplier;
     const totalExpensesNeeded = livingExpenses + oneTimeExpenses;
+  const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions;
 
     const guaranteedIncome = salary + totalCpp + totalOas + totalDbPension + gisAmount + inheritance;
-    const shortfall = Math.max(0, totalExpensesNeeded - guaranteedIncome);
+  const shortfall = Math.max(0, totalCashNeed - guaranteedIncome);
 
-    const baseTaxableIncome = primarySalary + cpp + oas + dbPensionBase;
+  const baseTaxableIncome = primaryTaxableSalary + cpp + oas + dbPensionBase;
 
     const preWithdrawalRrsp = balances.rrsp + balances.rrsp_spouse;
     const preWithdrawalTfsa = balances.tfsa;
@@ -946,7 +988,7 @@ export function runSingleProjection(
     const withdrawals = calculateOptimizedWithdrawals(
       balances, shortfall, age, baseTaxableIncome,
       scenario.province, year, effectiveInflation, oas,
-      isCouple, spouseSalary + spouseCpp + spouseOas + spouseDbPensionBase,
+      isCouple, spouseTaxableSalary + spouseCpp + spouseOas + spouseDbPensionBase,
       gisResult,
       rrspExhaustionAnnualBase,
       isRetired,
@@ -983,8 +1025,8 @@ export function runSingleProjection(
     const nonRegMarketReturn = nonRegMarketReturnPrimary + nonRegMarketReturnSpouse;
 
     const pensionIncomeForCredit = cpp + withdrawals.rrsp + dbPensionBase;
-    const primaryTaxableIncome = primarySalary + cpp + oas + dbPensionBase + withdrawals.rrsp + withdrawals.cap_gain_primary;
-    const spouseTaxableIncomeBase = spouseSalary + spouseCpp + spouseOas + spouseDbPensionBase + withdrawals.rrsp_spouse + withdrawals.cap_gain_spouse;
+  const primaryTaxableIncome = primaryTaxableSalary + cpp + oas + dbPensionBase + withdrawals.rrsp + withdrawals.cap_gain_primary;
+  const spouseTaxableIncomeBase = spouseTaxableSalary + spouseCpp + spouseOas + spouseDbPensionBase + withdrawals.rrsp_spouse + withdrawals.cap_gain_spouse;
 
     let federalTax: number;
     let provincialTax: number;
@@ -1041,7 +1083,8 @@ export function runSingleProjection(
     }
 
     const nonRegWithdrawal = withdrawals.non_reg_primary + withdrawals.non_reg_spouse;
-    const afterTaxIncome = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa;
+  const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa;
+  const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
 
     const isNetExpensesOnly = effectiveWithdrawalStrategy === 'net_expenses_only';
     let surplus = afterTaxIncome - totalExpensesNeeded;
@@ -1121,6 +1164,11 @@ export function runSingleProjection(
       non_reg_capital_gain_inclusion: withdrawals.cap_gain_primary + withdrawals.cap_gain_spouse,
       non_reg_capital_gain_inclusion_primary: withdrawals.cap_gain_primary,
       non_reg_capital_gain_inclusion_spouse: withdrawals.cap_gain_spouse,
+      rrsp_salary_deduction: totalRrspSalaryDeduction,
+      rrsp_salary_deduction_primary: primaryRrspSalaryDeduction,
+      rrsp_salary_deduction_spouse: spouseRrspSalaryDeduction,
+      salary_deducted_contributions: totalSalaryFundedContributions,
+      salary_deducted_after_tax_contributions: totalAfterTaxSalaryFundedContributions,
       total_withdrawals: withdrawals.total,
       provincial_tax: provincialTax,
       federal_tax: federalTax,

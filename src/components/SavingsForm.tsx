@@ -42,6 +42,8 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
   const storedMonthly = account.monthly_contribution;
   const displayContrib = contribUnit === 'Monthly' ? storedMonthly : storedMonthly * 12;
   const tfsaMonthlyLimit = tfsaLimitData ? tfsaLimitData.annualLimit / 12 : null;
+  const deductFromSalary = account.deduct_from_salary !== false;
+  const salaryLabel = account.person === 'spouse' ? 'Spouse Salary' : 'Primary Salary';
 
   const handleContribChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = parseFloat(e.target.value.replace(/[$,]/g, '')) || 0;
@@ -142,6 +144,31 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
             onChange={e => onUpdate(index, { contribution_end_age: clampAge(parseInt(e.target.value), retirementAge) })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
         </div>
+        <div className="md:col-span-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={deductFromSalary}
+              onChange={e => onUpdate(index, { deduct_from_salary: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div className="space-y-1">
+              <span className="text-sm font-medium text-gray-800">
+                Deduct this contribution from {salaryLabel}
+              </span>
+              <p className="text-xs text-gray-500">
+                {deductFromSalary
+                  ? 'Checked: this contribution is funded from employment income instead of an outside source.'
+                  : 'Unchecked: this contribution is treated as external money added on top of salary.'}
+              </p>
+            </div>
+          </label>
+          {account.account_type === 'rrsp' && deductFromSalary && (
+            <p className="mt-2 text-xs text-blue-700">
+              RRSP note: when checked, this contribution is taken from salary before income tax.
+            </p>
+          )}
+        </div>
         <div className="md:col-span-2">
           <div className="flex items-center gap-3">
             <Toggle
@@ -205,7 +232,14 @@ export default function SavingsForm({ accounts, onChange, scenario, tfsaLimitDat
   };
 
   const addAccount = (person: 'primary' | 'spouse') => {
-    onChange([...accounts, { person, account_type: 'rrsp', current_balance: 0, monthly_contribution: 0, contribution_end_age: scenario.retirement_age }]);
+    onChange([...accounts, {
+      person,
+      account_type: 'rrsp',
+      current_balance: 0,
+      monthly_contribution: 0,
+      contribution_end_age: scenario.retirement_age,
+      deduct_from_salary: true,
+    }]);
   };
 
   const updateByPerson = (person: 'primary' | 'spouse', localIndex: number, updates: Partial<SavingsAccount>) => {

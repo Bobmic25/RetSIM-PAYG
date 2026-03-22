@@ -97,6 +97,7 @@ export interface SavingsAccount {
   monthly_contribution: number;
   contribution_end_age: number;
   inflation_linked?: boolean;
+  deduct_from_salary?: boolean;
 }
 
 export interface ExpenseLadder {
@@ -165,6 +166,11 @@ export interface YearlyProjection {
   non_reg_capital_gain_inclusion: number;
   non_reg_capital_gain_inclusion_primary?: number;
   non_reg_capital_gain_inclusion_spouse?: number;
+  rrsp_salary_deduction?: number;
+  rrsp_salary_deduction_primary?: number;
+  rrsp_salary_deduction_spouse?: number;
+  salary_deducted_contributions?: number;
+  salary_deducted_after_tax_contributions?: number;
   primary_salary: number;
   total_balance: number;
   survival_probability?: number;

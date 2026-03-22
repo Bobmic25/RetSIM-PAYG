@@ -66,11 +66,11 @@ function TaxInfoModal({ onClose }: { onClose: () => void }) {
             <li><strong>GIS Clawback:</strong> {gisClawbackPct}% on other income (max {gisSingleFmt} single / {gisCoupleFmt} couple)</li>
           </ul>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
-            <p className="text-blue-800"><strong>After-Tax Income</strong> = Total Income − All Taxes + TFSA Withdrawals</p>
-            <p className="text-xs text-blue-700 mt-1">TFSA withdrawals are added back — they are tax-free.</p>
+            <p className="text-blue-800"><strong>After-Tax Income</strong> = Total Income − All Taxes − Salary-Funded Contributions + TFSA Withdrawals</p>
+            <p className="text-xs text-blue-700 mt-1">Salary-funded RRSP, TFSA, FHSA, and non-registered contributions reduce spendable cash. TFSA withdrawals are added back because they are tax-free.</p>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-            <p className="text-gray-700"><strong>Taxable Income</strong> = Salary + CPP + OAS + RRSP W/D + Non-Reg Capital Gain Inclusion</p>
+            <p className="text-gray-700"><strong>Taxable Income</strong> = Salary + CPP + OAS + RRSP W/D + Non-Reg Capital Gain Inclusion − Salary-Funded RRSP Contributions</p>
           </div>
         </div>
       </div>
@@ -87,10 +87,11 @@ function TaxableIncomeInfoModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5 text-gray-600" /></button>
         </div>
         <div className="space-y-3 text-sm text-gray-700">
-          <p><strong>Taxable Income = Salary + CPP + OAS + RRSP W/D + Non-Reg Taxable Portion</strong></p>
+          <p><strong>Taxable Income = Salary + CPP + OAS + RRSP W/D + Non-Reg Taxable Portion − Salary-Funded RRSP Contributions</strong></p>
           <ul className="space-y-2 list-disc pl-5">
             <li><strong>Salary / CPP / OAS / RRSP W/D:</strong> fully taxable in this model.</li>
             <li><strong>Non-Registered Withdrawal:</strong> only the capital gain inclusion amount is taxable, not the full withdrawal amount.</li>
+            <li><strong>Salary-funded RRSP contributions:</strong> deducted from taxable income for that year.</li>
           </ul>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
             <p className="text-blue-800">The table uses the projection's calculated Non-Reg capital gain inclusion for each year.</p>
@@ -172,12 +173,12 @@ export default function ProjectionTable({
   const totalWithdrawals = projections.reduce((s, p) => s + p.total_withdrawals, 0);
   const avgTaxRate = (() => {
     const rows = projections.filter(p => {
-      const t = p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_withdrawal;
+      const t = p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_capital_gain_inclusion - (p.rrsp_salary_deduction ?? 0);
       return t > 0;
     });
     if (!rows.length) return 0;
     return rows.reduce((s, p) => {
-      const t = p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_withdrawal;
+      const t = p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_capital_gain_inclusion - (p.rrsp_salary_deduction ?? 0);
       return s + (p.total_tax / t);
     }, 0) / rows.length;
   })();
@@ -276,7 +277,7 @@ export default function ProjectionTable({
                 </thead>
                 <tbody>
                   {projections.map((row, i) => {
-                    const taxableIncome = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_capital_gain_inclusion;
+                    const taxableIncome = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_capital_gain_inclusion - (row.rrsp_salary_deduction ?? 0);
                     const grossCashflow = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_withdrawal;
                     const isRetirement = row.total_withdrawals > 0 || row.cpp > 0;
                     const yr = row.year - 1;

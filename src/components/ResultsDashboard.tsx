@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, AlertTriangle, PieChart as PieChartIcon } from 'lucide-react';
 import PDFExport from './PDFExport';
 import NetWorthChart from './NetWorthChart';
@@ -9,19 +9,33 @@ import TaxInfoModal from './TaxInfoModal';
 import TaxVerificationPanel from './TaxVerificationPanel';
 import PortfolioBreakdownModal, { PortfolioSlice } from './PortfolioBreakdownModal';
 import AISuggestionsPanel from './AISuggestionsPanel';
-import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, OneTimeEvent } from '../types/retirement';
+import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, OneTimeEvent, AssetAllocation } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
 import { computeTaxAudit, calcTieredCapitalGainInclusion, OAS_CLAWBACK_THRESHOLD_2026, OAS_CLAWBACK_RATE, FEDERAL_BRACKETS_2026 } from '../lib/taxEngine';
 import { GIS_MAX_SINGLE_ANNUAL_2026, GIS_CLAWBACK_RATE } from '../lib/benefitsEngine';
 import { type LiveTaxData } from '../lib/taxDataService';
 import { generateSuggestions, calculateComparisonMetrics, type Suggestion } from '../lib/suggestionEngine';
+import { runSingleProjection } from '../lib/projectionEngine';
 
 interface SavedResult {
   name: string;
   projections: YearlyProjection[];
   color: string;
 }
+
+const WITHDRAWAL_STRATEGIES: Array<{
+  id: Scenario['withdrawal_strategy'];
+  label: string;
+  shortLabel: string;
+  color: string;
+}> = [
+  { id: 'maximize_spending', label: 'Maximize Life Spending', shortLabel: 'Life Spending', color: '#2563eb' },
+  { id: 'maximize_estate', label: 'Maximize Estate Value', shortLabel: 'Estate Value', color: '#059669' },
+  { id: 'tax_efficient', label: 'Tax Efficient', shortLabel: 'Tax Efficient', color: '#d97706' },
+  { id: 'net_expenses_only', label: 'Net Expenses Only', shortLabel: 'Net Expenses', color: '#7c3aed' },
+  { id: 'rrsp_meltdown', label: 'RRSP Meltdown', shortLabel: 'RRSP Meltdown', color: '#dc2626' },
+];
 
 interface ResultsDashboardProps {
   projections: YearlyProjection[];
@@ -36,6 +50,7 @@ interface ResultsDashboardProps {
   scenario: Scenario;
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
+  assetAllocations: AssetAllocation[];
   expenseLadder: ExpenseLadder[];
   oneTimeEvents: OneTimeEvent[];
   onSaveComparison: () => void;
@@ -103,6 +118,7 @@ export default function ResultsDashboard({
   scenario,
   incomeSources,
   savingsAccounts,
+  assetAllocations,
   expenseLadder,
   oneTimeEvents,
   onSaveComparison,
@@ -238,11 +254,96 @@ export default function ResultsDashboard({
     { label: 'Non-Registered', value: pv(lastYear.non_reg_balance, lastYear.year - 1), color: ACCOUNT_COLORS.non_reg },
   ].filter(s => s.value > 0);
 
+  const strategySummaryCards = useMemo(() => {
+    return WITHDRAWAL_STRATEGIES.map(strategy => {
+      const strategyProjections = strategy.id === scenario.withdrawal_strategy
+        ? projections
+        : runSingleProjection(
+            { ...scenario, withdrawal_strategy: strategy.id },
+            incomeSources,
+            savingsAccounts,
+            expenseLadder,
+            oneTimeEvents,
+            undefined,
+            undefined,
+            undefined,
+            assetAllocations
+          );
+
+      const metrics = calculateComparisonMetrics(strategyProjections);
+      const strategyLast = strategyProjections[strategyProjections.length - 1];
+      const strategyRetirementAge = strategyProjections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? scenario.retirement_age;
+      const retirementWithdrawals = showTodayDollars
+        ? strategyProjections
+            .filter(p => p.age >= strategyRetirementAge)
+            .reduce((sum, p) => sum + pv(p.total_withdrawals, p.year - 1), 0)
+        : strategyProjections
+            .filter(p => p.age >= strategyRetirementAge)
+            .reduce((sum, p) => sum + p.total_withdrawals, 0);
+      const taxes = showTodayDollars
+        ? strategyProjections.reduce((sum, p) => sum + pv(p.total_tax, p.year - 1), 0)
+        : metrics.lifetimeTaxes;
+      const finalBalance = strategyLast
+        ? (showTodayDollars ? pv(strategyLast.total_balance, strategyLast.year - 1) : strategyLast.total_balance)
+        : 0;
+
+      return {
+        key: `strategy-${strategy.id}`,
+        title: strategy.label,
+        badge: strategy.id === scenario.withdrawal_strategy ? 'Current' : 'Strategy',
+        color: strategy.color,
+        finalBalance,
+        taxes,
+        retirementWithdrawals,
+        isActive: strategy.id === scenario.withdrawal_strategy,
+        onClick: onWithdrawalStrategyChange ? () => onWithdrawalStrategyChange(strategy.id) : undefined,
+      };
+    });
+  }, [
+    scenario,
+    projections,
+    incomeSources,
+    savingsAccounts,
+    assetAllocations,
+    expenseLadder,
+    oneTimeEvents,
+    showTodayDollars,
+    onWithdrawalStrategyChange,
+  ]);
+
+  const comparisonCards = [
+    ...strategySummaryCards,
+    ...savedResults.map((r, i) => {
+      const last = r.projections[r.projections.length - 1];
+      const finalBalance = showTodayDollars
+        ? pv(last.total_balance, last.year - 1)
+        : last.total_balance;
+      const tax = showTodayDollars
+        ? r.projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
+        : r.projections.reduce((s, p) => s + p.total_tax, 0);
+      const savedRetirementAge = r.projections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? 0;
+      const totalRetirementWd = showTodayDollars
+        ? r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + pv(p.total_withdrawals, p.year - 1), 0)
+        : r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + p.total_withdrawals, 0);
+      return {
+        key: `saved-${i}`,
+        title: r.name,
+        badge: 'Saved',
+        color: r.color,
+        finalBalance,
+        taxes: tax,
+        retirementWithdrawals: totalRetirementWd,
+        isActive: false,
+        onClick: undefined,
+      };
+    })
+  ];
+
   const exportCSV = () => {
     const headers = ['Age', 'Salary', 'CPP', 'OAS', 'Inheritance', 'RRSP W/D', 'TFSA W/D', 'Non-Reg W/D',
       'Taxable Income', 'Federal Tax', 'Prov Tax', 'CPP/EI/OAS', 'Total Tax', 'After-Tax', 'Expenses', 'Net Flow', 'Total Net Worth'];
     const rows = projections.map(p => {
-      const taxable = p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_withdrawal;
+      const taxable = p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_capital_gain_inclusion - (p.rrsp_salary_deduction ?? 0);
       return [p.age, p.salary, p.cpp, p.oas, p.inheritance, p.rrsp_withdrawal, p.tfsa_withdrawal, p.non_reg_withdrawal,
         taxable, p.federal_tax, p.provincial_tax, p.cpp_ei_tax, p.total_tax,
         p.after_tax_income, p.total_expenses, p.net_cash_flow, p.total_balance];
@@ -528,50 +629,57 @@ export default function ResultsDashboard({
               onTaxDataRefreshed={onTaxDataRefreshed}
             />
           )}
-        </div>
-      </div>
 
-      {savedResults.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h3 className="font-semibold text-gray-900 mb-4">Saved Comparisons</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {savedResults.map((r, i) => {
-              const last = r.projections[r.projections.length - 1];
-              const finalBalance = showTodayDollars
-                ? pv(last.total_balance, last.year - 1)
-                : last.total_balance;
-              const tax = showTodayDollars
-                ? r.projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
-                : r.projections.reduce((s, p) => s + p.total_tax, 0);
-              const savedRetirementAge = r.projections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? 0;
-              const totalRetirementWd = showTodayDollars
-                ? r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + pv(p.total_withdrawals, p.year - 1), 0)
-                : r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + p.total_withdrawals, 0);
-              return (
-                <div key={i} className="border-2 rounded-lg p-4" style={{ borderColor: r.color }}>
-                  <p className="font-semibold mb-2" style={{ color: r.color }}>{r.name}</p>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Final Balance</span>
-                      <span className={`font-bold ${finalBalance < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {formatCurrency(finalBalance)}
+          <div className="mt-8 border-t border-gray-200 pt-5">
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+              <div>
+                <h3 className="font-semibold text-gray-900">Withdrawal Strategy Summaries</h3>
+                <p className="text-sm text-gray-500">
+                  The first row shows all five withdrawal strategies. Saved comparison snapshots continue on the next row automatically.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+              {comparisonCards.map(card => (
+                <button
+                  key={card.key}
+                  type="button"
+                  onClick={card.onClick}
+                  disabled={!card.onClick}
+                  className={`rounded-xl border-2 bg-white p-4 text-left transition-colors ${card.onClick ? 'hover:bg-gray-50' : ''} ${card.isActive ? 'shadow-sm' : ''} ${!card.onClick ? 'cursor-default' : ''}`}
+                  style={{ borderColor: card.color }}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <p className="font-semibold text-gray-900 leading-5">{card.title}</p>
+                      <span className="inline-flex mt-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
+                        {card.badge}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Tax</span>
-                      <span className="font-medium text-red-600">{formatCurrency(tax)}</span>
+                    <span className="mt-1 h-3 w-3 rounded-full" style={{ backgroundColor: card.color }} />
+                  </div>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">Final Balance</span>
+                      <span className={`font-semibold ${card.finalBalance < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                        {formatCurrency(card.finalBalance)}
+                      </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Ret. Withdrawals</span>
-                      <span className="font-medium text-blue-700">{formatCurrency(totalRetirementWd)}</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">Ret. Tax</span>
+                      <span className="font-medium text-red-600">{formatCurrency(card.taxes)}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">Ret. Withdrawals</span>
+                      <span className="font-medium text-blue-700">{formatCurrency(card.retirementWithdrawals)}</span>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

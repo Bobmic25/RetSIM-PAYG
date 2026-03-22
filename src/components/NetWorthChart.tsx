@@ -85,7 +85,7 @@ export default function NetWorthChart({
           net_worth: pv(p.total_balance, yearIndex),
           total_withdrawals: pv(p.total_withdrawals, yearIndex),
           total_income: pv(p.total_income, yearIndex),
-          taxable_income: pv(p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_withdrawal, yearIndex),
+          taxable_income: pv(p.salary + p.cpp + p.oas + p.rrsp_withdrawal + p.non_reg_capital_gain_inclusion - (p.rrsp_salary_deduction ?? 0), yearIndex),
           total_tax: pv(p.total_tax, yearIndex),
           after_tax_income: pv(p.after_tax_income, yearIndex),
         };
