@@ -191,10 +191,15 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
             <option value="maximize_spending">Maximize Life Spending</option>
             <option value="maximize_estate">Maximize Estate Value</option>
+            <option value="tax_efficient">Tax Efficient</option>
             <option value="net_expenses_only">Satisfy Net Expenses Only</option>
+            <option value="rrsp_meltdown">RRSP Meltdown (Early Withdrawal)</option>
           </select>
           {scenario.withdrawal_strategy === 'net_expenses_only' && (
             <p className="text-xs text-gray-500 mt-1">Only withdraws the minimum needed to meet net expenses. Skips bracket-filling and RRSP exhaustion.</p>
+          )}
+          {scenario.withdrawal_strategy === 'rrsp_meltdown' && (
+            <p className="text-xs text-gray-500 mt-1">Prioritizes early RRSP withdrawal (meltdown) based on life expectancy. Maximizes RRSP usage early, uses Non-Registered as secondary, keeps TFSA as last resort.</p>
           )}
         </div>
       </div>

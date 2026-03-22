@@ -332,6 +332,16 @@ function App() {
     setOptimizedMonteCarloResult(undefined);
   };
 
+  const handleWithdrawalStrategyChange = async (newStrategy: Scenario['withdrawal_strategy']) => {
+    const updatedScenario = { ...scenario, withdrawal_strategy: newStrategy };
+    setScenario(updatedScenario);
+    try {
+      await runSimulation(updatedScenario);
+    } catch (error) {
+      console.error('Error changing withdrawal strategy:', error);
+    }
+  };
+
   const handleLoadScenario = (data: {
     scenario: Scenario;
     incomeSources: IncomeSource[];
@@ -462,6 +472,7 @@ function App() {
                   liveTaxData={liveTaxData}
                   taxDataStatus={taxDataStatus}
                   showAISuggestions={showAISuggestions}
+                  onWithdrawalStrategyChange={handleWithdrawalStrategyChange}
                   onTaxDataRefreshed={(data) => {
                     setActiveLiveTaxData(data);
                     setLiveTaxData(data);

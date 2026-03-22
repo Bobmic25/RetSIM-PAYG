@@ -44,6 +44,7 @@ interface ResultsDashboardProps {
   taxDataStatus?: 'loading' | 'live' | 'fallback';
   onTaxDataRefreshed?: (data: LiveTaxData) => void;
   showAISuggestions?: boolean;
+  onWithdrawalStrategyChange?: (strategy: Scenario['withdrawal_strategy']) => void;
 }
 
 function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClick }: {
@@ -109,7 +110,8 @@ export default function ResultsDashboard({
   liveTaxData,
   taxDataStatus,
   onTaxDataRefreshed,
-  showAISuggestions = false
+  showAISuggestions = false,
+  onWithdrawalStrategyChange
 }: ResultsDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'cashflow' | 'tax' | 'table' | 'verify'>('overview');
   const [showTodayDollars, setShowTodayDollars] = useState(true);
@@ -148,6 +150,8 @@ export default function ResultsDashboard({
   const totalTax = projections.reduce((s, p) => s + p.total_tax, 0);
   const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
 
+  const retirementProjections = projections.filter(p => p.age >= retirementStartAge);
+
   const pv = (amount: number, yearIndex: number) =>
     showTodayDollars ? presentValue(amount, yearIndex, inflationRate) : amount;
 
@@ -155,6 +159,10 @@ export default function ResultsDashboard({
   const totalTaxPv = showTodayDollars
     ? projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
     : totalTax;
+
+  const totalRetirementWithdrawals = retirementProjections.reduce(
+    (s, p) => s + pv(p.total_withdrawals, p.year - 1), 0
+  );
 
   const representativeYear = projections.find(p => p.total_withdrawals > 0 || p.cpp > 0) ?? projections[Math.floor(projections.length / 2)];
   const repNonRegGain = representativeYear.non_reg_withdrawal > 0
@@ -344,11 +352,11 @@ export default function ResultsDashboard({
         />
         <StatCard
           icon={monteCarloResult ? Target : TrendingUp}
-          label={monteCarloResult ? 'Success Rate' : 'Retirement Income'}
+          label={monteCarloResult ? 'Success Rate' : 'Total Ret. Withdrawals'}
           value={monteCarloResult
             ? `${monteCarloResult.success_rate.toFixed(1)}%`
-            : firstRetirementYear ? formatCurrency(pv(firstRetirementYear.after_tax_income, firstRetirementYear.year - 1)) : '—'}
-          sub={monteCarloResult ? `${monteCarloResult.iterations.toLocaleString()} iterations` : 'First year after-tax income'}
+            : formatCurrency(totalRetirementWithdrawals)}
+          sub={monteCarloResult ? `${monteCarloResult.iterations.toLocaleString()} iterations` : `All post-retirement${showTodayDollars ? " (today's $)" : ''}`}
           color="bg-blue-500"
         />
       </div>
@@ -401,20 +409,40 @@ export default function ResultsDashboard({
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2 px-4 py-2.5 border-l border-gray-200 bg-gray-50 shrink-0">
-            <span className={`text-xs font-medium whitespace-nowrap transition-colors ${!retirementView ? 'text-gray-900' : 'text-gray-400'}`}>
-              Overall
-            </span>
-            <button
-              onClick={() => setRetirementView(v => !v)}
-              className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${retirementView ? 'bg-blue-600' : 'bg-gray-300'}`}
-              title={retirementView ? 'Showing from retirement age' : 'Showing full projection'}
-            >
-              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all duration-200 ${retirementView ? 'left-5' : 'left-0.5'}`} />
-            </button>
-            <span className={`text-xs font-medium whitespace-nowrap transition-colors ${retirementView ? 'text-blue-700' : 'text-gray-400'}`}>
-              Retirement
-            </span>
+          <div className="flex items-center gap-4 px-4 py-2.5 border-l border-gray-200 bg-gray-50 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-700">Return Type:</span>
+              <span className="text-xs font-semibold text-gray-900">{scenario.return_type === 'monte_carlo' ? 'Monte Carlo' : 'Linear'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-gray-700">Withdrawal Strategy:</label>
+              <select 
+                value={scenario.withdrawal_strategy} 
+                onChange={(e) => onWithdrawalStrategyChange?.(e.target.value as Scenario['withdrawal_strategy'])}
+                className="px-2 py-1 text-xs border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              >
+                <option value="maximize_spending">Maximize Life Spending</option>
+                <option value="maximize_estate">Maximize Estate Value</option>
+                <option value="tax_efficient">Tax Efficient</option>
+                <option value="net_expenses_only">Net Expenses Only</option>
+                <option value="rrsp_meltdown">RRSP Meltdown</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 pl-4 border-l border-gray-300">
+              <span className={`text-xs font-medium whitespace-nowrap transition-colors ${!retirementView ? 'text-gray-900' : 'text-gray-400'}`}>
+                Overall
+              </span>
+              <button
+                onClick={() => setRetirementView(v => !v)}
+                className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${retirementView ? 'bg-blue-600' : 'bg-gray-300'}`}
+                title={retirementView ? 'Showing from retirement age' : 'Showing full projection'}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all duration-200 ${retirementView ? 'left-5' : 'left-0.5'}`} />
+              </button>
+              <span className={`text-xs font-medium whitespace-nowrap transition-colors ${retirementView ? 'text-blue-700' : 'text-gray-400'}`}>
+                Retirement
+              </span>
+            </div>
           </div>
         </div>
 
@@ -471,10 +499,16 @@ export default function ResultsDashboard({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {savedResults.map((r, i) => {
               const last = r.projections[r.projections.length - 1];
-              const finalBalance = pv(last.total_balance, last.year - 1);
+              const finalBalance = showTodayDollars
+                ? pv(last.total_balance, last.year - 1)
+                : last.total_balance;
               const tax = showTodayDollars
                 ? r.projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
                 : r.projections.reduce((s, p) => s + p.total_tax, 0);
+              const savedRetirementAge = r.projections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? 0;
+              const totalRetirementWd = showTodayDollars
+                ? r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + pv(p.total_withdrawals, p.year - 1), 0)
+                : r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + p.total_withdrawals, 0);
               return (
                 <div key={i} className="border-2 rounded-lg p-4" style={{ borderColor: r.color }}>
                   <p className="font-semibold mb-2" style={{ color: r.color }}>{r.name}</p>
@@ -490,8 +524,8 @@ export default function ResultsDashboard({
                       <span className="font-medium text-red-600">{formatCurrency(tax)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Final Age</span>
-                      <span className="font-medium text-gray-900">{last.age}</span>
+                      <span className="text-gray-600">Total Ret. Withdrawals</span>
+                      <span className="font-medium text-blue-700">{formatCurrency(totalRetirementWd)}</span>
                     </div>
                   </div>
                 </div>

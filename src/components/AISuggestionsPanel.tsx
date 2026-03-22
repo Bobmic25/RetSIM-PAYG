@@ -1,4 +1,5 @@
-import { Lightbulb, TrendingUp, Shield, DollarSign, X } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, Lightbulb, TrendingUp, Shield, DollarSign, X } from 'lucide-react';
 import { Suggestion, ComparisonMetrics } from '../lib/suggestionEngine';
 import { formatCurrency } from '../lib/formatters';
 
@@ -124,18 +125,40 @@ export default function AISuggestionsPanel({
   defaultMetrics,
   optimizedMetrics
 }: AISuggestionsPanelProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const toggleExpanded = () => setIsExpanded(current => !current);
+
   if (suggestions.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Lightbulb className="w-5 h-5 text-green-600" />
-          <h3 className="text-lg font-bold text-gray-900">AI Suggested Improvements</h3>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? 'Collapse AI suggested improvements' : 'Expand AI suggested improvements'}
+            className="flex flex-1 items-center gap-2 text-left"
+          >
+            <Lightbulb className="w-5 h-5 text-green-600" />
+            <h3 className="text-lg font-bold text-gray-900">AI Suggested Improvements</h3>
+          </button>
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? 'Collapse AI suggested improvements' : 'Expand AI suggested improvements'}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+          >
+            {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
         </div>
-        <div className="text-center py-8 text-gray-500">
-          <Lightbulb className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-          <p className="text-sm font-medium">Your plan is already well optimized!</p>
-          <p className="text-xs mt-1">No major improvements detected at this time.</p>
-        </div>
+        {isExpanded && (
+          <div className="text-center py-8 text-gray-500">
+            <Lightbulb className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+            <p className="text-sm font-medium">Your plan is already well optimized!</p>
+            <p className="text-xs mt-1">No major improvements detected at this time.</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -143,45 +166,66 @@ export default function AISuggestionsPanel({
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? 'Collapse AI suggested improvements' : 'Expand AI suggested improvements'}
+          className="flex flex-1 items-center gap-2 text-left"
+        >
           <Lightbulb className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-bold text-gray-900">AI Suggested Improvements</h3>
-        </div>
-        {activeSuggestion && (
+        </button>
+        <div className="flex items-center gap-2">
+          {activeSuggestion && isExpanded && (
+            <button
+              onClick={onResetOptimization}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+              Reset to Default
+            </button>
+          )}
           <button
-            onClick={onResetOptimization}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            type="button"
+            onClick={toggleExpanded}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? 'Collapse AI suggested improvements' : 'Expand AI suggested improvements'}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
           >
-            <X className="w-4 h-4" />
-            Reset to Default
+            {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </button>
-        )}
-      </div>
-
-      <p className="text-sm text-gray-600 mb-4">
-        We analyzed your retirement plan and found {suggestions.length} potential optimization{suggestions.length !== 1 ? 's' : ''}.
-        Click to apply and compare results.
-      </p>
-
-      <div className="space-y-3">
-        {suggestions.map(suggestion => (
-          <SuggestionCard
-            key={suggestion.id}
-            suggestion={suggestion}
-            isActive={activeSuggestion?.id === suggestion.id}
-            onApply={() => onApplySuggestion(suggestion)}
-            defaultMetrics={defaultMetrics}
-            optimizedMetrics={optimizedMetrics}
-          />
-        ))}
-      </div>
-
-      {activeSuggestion && (
-        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-xs text-blue-800">
-            <strong>Comparison Mode Active:</strong> Charts now show both your default plan (lighter) and the optimized plan (darker) for easy comparison.
-          </p>
         </div>
+      </div>
+
+      {isExpanded && (
+        <>
+          <p className="text-sm text-gray-600 mb-4">
+            We analyzed your retirement plan and found {suggestions.length} potential optimization{suggestions.length !== 1 ? 's' : ''}.
+            Click to apply and compare results.
+          </p>
+
+          <div className="space-y-3">
+            {suggestions.map(suggestion => (
+              <SuggestionCard
+                key={suggestion.id}
+                suggestion={suggestion}
+                isActive={activeSuggestion?.id === suggestion.id}
+                onApply={() => onApplySuggestion(suggestion)}
+                defaultMetrics={defaultMetrics}
+                optimizedMetrics={optimizedMetrics}
+              />
+            ))}
+          </div>
+
+          {activeSuggestion && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-xs text-blue-800">
+                <strong>Comparison Mode Active:</strong> Charts now show both your default plan (lighter) and the optimized plan (darker) for easy comparison.
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

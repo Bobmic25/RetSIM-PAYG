@@ -1,6 +1,6 @@
 export type ProfileType = 'individual' | 'couple';
 export type ReturnType = 'linear' | 'monte_carlo';
-export type WithdrawalStrategy = 'maximize_spending' | 'maximize_estate' | 'tax_efficient' | 'net_expenses_only';
+export type WithdrawalStrategy = 'maximize_spending' | 'maximize_estate' | 'tax_efficient' | 'net_expenses_only' | 'rrsp_meltdown';
 export type AccountType = 'rrsp' | 'tfsa' | 'fhsa' | 'non_reg';
 export type IncomeSourceType = 'salary' | 'pension' | 'rental' | 'other';
 export type EventType = 'inheritance' | 'expense';
