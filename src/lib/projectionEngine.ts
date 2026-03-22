@@ -570,26 +570,20 @@ function calculateOptimizedWithdrawals(
 
   // RRSP exhaustion logic - apply based on strategy, skipped for net_expenses_only
   const shouldApplyExhaustion = !disableForcedWithdrawals && !isNetExpensesOnly &&
-    (withdrawalStrategy === 'maximize_spending' || withdrawalStrategy === 'tax_efficient' || withdrawalStrategy === undefined);
+    (
+      withdrawalStrategy === 'maximize_spending' ||
+      withdrawalStrategy === 'tax_efficient' ||
+      withdrawalStrategy === 'maximize_estate' ||
+      withdrawalStrategy === undefined
+    );
 
-  // For maximize_estate, only apply exhaustion if it reduces terminal tax
+  // Apply the configured RRSP exhaustion target for all supported strategies.
   const currentRrspWithdrawn = result.rrsp + result.rrsp_spouse;
   if (isRetired && shouldApplyExhaustion && exhaustionFloor > currentRrspWithdrawn) {
     const additionalNeeded = Math.min(exhaustionFloor - currentRrspWithdrawn, rrspRemainingCap());
     const combinedRrsp = balances.rrsp + balances.rrsp_spouse;
 
-    // For maximize_estate, evaluate if this withdrawal is beneficial
-    let shouldWithdraw = true;
-    if ((withdrawalStrategy as string) === 'maximize_estate' && combinedRrsp > 0 && additionalNeeded > 0) {
-      // Estimate marginal tax on this withdrawal
-      const marginalRate = getMarginalRate(currentTaxableIncome + result.rrsp, province, year, inflationRate);
-      // If marginal rate is very high (>40%), skip the forced exhaustion for estate preservation
-      if (marginalRate > 0.40) {
-        shouldWithdraw = false;
-      }
-    }
-
-    if (shouldWithdraw && combinedRrsp > 0 && additionalNeeded > 0) {
+    if (combinedRrsp > 0 && additionalNeeded > 0) {
       if (isCouple && balances.rrsp_spouse > 0 && spouseIncome !== undefined) {
         const matched = bracketMatchRRSPWithdrawals(
           currentTaxableIncome + result.rrsp,

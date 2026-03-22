@@ -334,7 +334,19 @@ function App() {
   };
 
   const handleWithdrawalStrategyChange = async (newStrategy: Scenario['withdrawal_strategy']) => {
-    const updatedScenario = { ...scenario, withdrawal_strategy: newStrategy };
+    const normalizedRrspExhaustYears = Math.max(
+      1,
+      Math.min(
+        Math.max(1, scenario.plan_duration - 1),
+        scenario.rrsp_exhaustion_years_before_end ?? 2
+      )
+    );
+
+    const updatedScenario = {
+      ...scenario,
+      withdrawal_strategy: newStrategy,
+      rrsp_exhaustion_years_before_end: normalizedRrspExhaustYears
+    };
     setScenario(updatedScenario);
     try {
       await runSimulation(updatedScenario);
@@ -350,7 +362,10 @@ function App() {
     expenseLadder: ExpenseLadder[];
     oneTimeEvents: OneTimeEvent[];
   }) => {
-    setScenario(data.scenario);
+    setScenario({
+      ...data.scenario,
+      rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2
+    });
     setIncomeSources(data.incomeSources);
     setSavingsAccounts(data.savingsAccounts);
     setExpenseLadder(data.expenseLadder);
