@@ -77,6 +77,29 @@ function TaxInfoModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function TaxableIncomeInfoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-gray-900">How Taxable Income is Calculated</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5 text-gray-600" /></button>
+        </div>
+        <div className="space-y-3 text-sm text-gray-700">
+          <p><strong>Taxable Income = Salary + CPP + OAS + RRSP W/D + Non-Reg Taxable Portion</strong></p>
+          <ul className="space-y-2 list-disc pl-5">
+            <li><strong>Salary / CPP / OAS / RRSP W/D:</strong> fully taxable in this model.</li>
+            <li><strong>Non-Registered Withdrawal:</strong> only the capital gain inclusion amount is taxable, not the full withdrawal amount.</li>
+          </ul>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+            <p className="text-blue-800">The table uses the projection's calculated Non-Reg capital gain inclusion for each year.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ROW_HEIGHT = 40;
 const VISIBLE_ROWS = 10;
 const TABLE_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS;
@@ -90,6 +113,7 @@ export default function ProjectionTable({
   const [showGrowthTable, setShowGrowthTable] = useState(true);
   const [showOptimTable, setShowOptimTable] = useState(true);
   const [showTaxInfo, setShowTaxInfo] = useState(false);
+  const [showTaxableInfo, setShowTaxableInfo] = useState(false);
   const [optimRows, setOptimRows] = useState<CppOasOptimizationRow[] | null>(null);
   const [isRunningOptim, setIsRunningOptim] = useState(false);
 
@@ -132,6 +156,7 @@ export default function ProjectionTable({
   return (
     <div className="space-y-4">
       {showTaxInfo && <TaxInfoModal onClose={() => setShowTaxInfo(false)} />}
+      {showTaxableInfo && <TaxableIncomeInfoModal onClose={() => setShowTaxableInfo(false)} />}
 
       <CollapseHeader title="Year-by-Year Projection" isOpen={showMainTable}
         onToggle={() => setShowMainTable(v => !v)} badge={`${projections.length} years`} />
@@ -150,7 +175,15 @@ export default function ProjectionTable({
                     <th className="px-3 py-2 text-right font-medium whitespace-nowrap">RRSP W/D</th>
                     <th className="px-3 py-2 text-right font-medium whitespace-nowrap">TFSA W/D</th>
                     {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Non-Reg W/D</th>}
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Taxable Inc.</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Gross Cashflow</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                      <button
+                        onClick={() => setShowTaxableInfo(true)}
+                        className="flex items-center gap-1 text-white hover:text-blue-200 whitespace-nowrap"
+                      >
+                        Taxable Inc. <Info className="w-3 h-3" />
+                      </button>
+                    </th>
                     <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
                       <button onClick={() => setShowTaxInfo(true)}
                         className="flex items-center gap-1 text-white hover:text-blue-200 whitespace-nowrap">
@@ -172,7 +205,8 @@ export default function ProjectionTable({
                 </thead>
                 <tbody>
                   {projections.map((row, i) => {
-                    const taxableIncome = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_withdrawal;
+                    const taxableIncome = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_capital_gain_inclusion;
+                    const grossCashflow = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_withdrawal;
                     const isRetirement = row.total_withdrawals > 0 || row.cpp > 0;
                     const yr = row.year - 1;
                     return (
@@ -189,6 +223,7 @@ export default function ProjectionTable({
                         <td className="px-3 py-1.5 text-right text-blue-700">{row.rrsp_withdrawal > 0 ? fmtPv(row.rrsp_withdrawal, yr) : '—'}</td>
                         <td className="px-3 py-1.5 text-right text-teal-700">{row.tfsa_withdrawal > 0 ? fmtPv(row.tfsa_withdrawal, yr) : '—'}</td>
                         {hasNonReg && <td className="px-3 py-1.5 text-right text-orange-700">{row.non_reg_withdrawal > 0 ? fmtPv(row.non_reg_withdrawal, yr) : '—'}</td>}
+                        <td className="px-3 py-1.5 text-right font-medium text-gray-700">{fmtPv(grossCashflow, yr)}</td>
                         <td className="px-3 py-1.5 text-right font-medium text-gray-800">{fmtPv(taxableIncome, yr)}</td>
                         <td className="px-3 py-1.5 text-right text-red-600">{row.federal_tax > 0 ? fmtPv(row.federal_tax, yr) : '—'}</td>
                         <td className="px-3 py-1.5 text-right text-red-500">{row.provincial_tax > 0 ? fmtPv(row.provincial_tax, yr) : '—'}</td>
