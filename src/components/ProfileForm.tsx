@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FolderOpen } from 'lucide-react';
 import { Scenario, Province } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
+import { MAX_AGE, clampAge } from '../lib/ageUtils';
 
 interface ProfileFormProps {
   scenario: Scenario;
@@ -49,8 +50,8 @@ function DbPensionPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Pension Start Age</label>
-          <input type="number" value={startAge} min={50} max={80}
-            onChange={e => onStartAge(parseInt(e.target.value) || 65)}
+          <input type="number" value={startAge} min={50} max={MAX_AGE}
+            onChange={e => onStartAge(clampAge(parseInt(e.target.value), 65, 50))}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         <div>
@@ -158,7 +159,9 @@ function CppOasPanel({
             }}
             placeholder="$0"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-          <p className="text-xs text-gray-500 mt-1">2024 max: {formatCurrency(8505)} /yr — edit to match your statement</p>
+          <p className="text-xs text-gray-500 mt-1">
+            = {oasUnit === 'Monthly' ? `${formatCurrency(oasAmount65)} /yr` : `${formatCurrency(Math.round(oasAmount65 / 12))} /mo`}
+          </p>
         </div>
       </div>
 
@@ -221,22 +224,22 @@ export default function ProfileForm({ scenario, onChange, onLoadScenario }: Prof
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Current Age</label>
-          <input type="number" value={scenario.current_age} min={18} max={100}
-            onChange={e => onChange({ current_age: parseInt(e.target.value) || 0 })}
+          <input type="number" value={scenario.current_age} min={18} max={MAX_AGE}
+            onChange={e => onChange({ current_age: clampAge(parseInt(e.target.value), scenario.current_age) })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         {scenario.profile_type === 'couple' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Spouse Age</label>
-            <input type="number" value={scenario.spouse_age || ''} min={18} max={100}
-              onChange={e => onChange({ spouse_age: parseInt(e.target.value) || undefined })}
+            <input type="number" value={scenario.spouse_age || ''} min={18} max={MAX_AGE}
+              onChange={e => onChange({ spouse_age: e.target.value ? clampAge(parseInt(e.target.value), scenario.spouse_age || scenario.current_age) : undefined })}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
           </div>
         )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Retirement Age</label>
-          <input type="number" value={scenario.retirement_age} min={50} max={75}
-            onChange={e => onChange({ retirement_age: parseInt(e.target.value) || 0 })}
+          <input type="number" value={scenario.retirement_age} min={50} max={MAX_AGE}
+            onChange={e => onChange({ retirement_age: clampAge(parseInt(e.target.value), scenario.retirement_age, 50) })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         <div>

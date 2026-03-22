@@ -1,6 +1,7 @@
 import { Plus, Trash2, Info } from 'lucide-react';
 import { Scenario } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
+import { MAX_AGE, clampAge } from '../lib/ageUtils';
 
 interface HealthcareStep {
   from_age: number;
@@ -21,7 +22,7 @@ export default function HealthcareForm({ steps, onChange, scenario }: Healthcare
     if (steps.length === 0) {
       onChange([{
         from_age: scenario.retirement_age,
-        to_age: scenario.retirement_age + 10,
+        to_age: Math.min(MAX_AGE, scenario.retirement_age + 10),
         annual_cost: 3000,
         is_insured: false,
         description: 'Basic healthcare'
@@ -30,8 +31,8 @@ export default function HealthcareForm({ steps, onChange, scenario }: Healthcare
     }
     const last = steps[steps.length - 1];
     onChange([...steps, {
-      from_age: last.to_age + 1,
-      to_age: last.to_age + 11,
+      from_age: Math.min(MAX_AGE, last.to_age + 1),
+      to_age: Math.min(MAX_AGE, last.to_age + 11),
       annual_cost: last.annual_cost,
       is_insured: last.is_insured,
       description: ''
@@ -140,8 +141,8 @@ export default function HealthcareForm({ steps, onChange, scenario }: Healthcare
                   type="number"
                   value={step.from_age}
                   min={18}
-                  max={120}
-                  onChange={e => updateStep(index, { from_age: parseInt(e.target.value) || step.from_age })}
+                  max={MAX_AGE}
+                  onChange={e => updateStep(index, { from_age: clampAge(parseInt(e.target.value), step.from_age) })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>
@@ -151,8 +152,8 @@ export default function HealthcareForm({ steps, onChange, scenario }: Healthcare
                   type="number"
                   value={step.to_age}
                   min={step.from_age}
-                  max={120}
-                  onChange={e => updateStep(index, { to_age: parseInt(e.target.value) || step.to_age })}
+                  max={MAX_AGE}
+                  onChange={e => updateStep(index, { to_age: clampAge(parseInt(e.target.value), step.to_age, step.from_age) })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>

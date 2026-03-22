@@ -9,8 +9,9 @@ import {
 } from '../types/retirement';
 import { runCppOasOptimization, CppOasOptimizationRow } from '../lib/projectionEngine';
 import { formatCurrency } from '../lib/formatters';
-import { RefreshCw, TrendingDown, Calculator, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, TrendingDown, Calculator, CheckCircle, AlertCircle, Loader2, HelpCircle } from 'lucide-react';
 import { type LiveTaxData, triggerTaxDataRefresh, fetchLiveTaxData } from '../lib/taxDataService';
+import VerificationTaxExplainModal from './VerificationTaxExplainModal';
 
 interface TaxVerificationPanelProps {
   projections: YearlyProjection[];
@@ -47,12 +48,20 @@ export default function TaxVerificationPanel({
   const [loadingOpt, setLoadingOpt] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [showTaxExplainModal, setShowTaxExplainModal] = useState(false);
 
   const selectedYear = projections.find(p => p.age === selectedAge);
   const yearIndex = selectedYear ? selectedYear.year - 1 : 0;
 
+  const employmentAndPensionIncome = selectedYear
+    ? selectedYear.salary + selectedYear.db_pension
+    : 0;
+  const primaryNonRegGain = selectedYear?.non_reg_capital_gain_inclusion_primary ?? 0;
+  const spouseNonRegGain = selectedYear?.non_reg_capital_gain_inclusion_spouse ?? 0;
+  const showAttributedNonRegDetails = primaryNonRegGain > 0 || spouseNonRegGain > 0;
+
   const taxableIncome = selectedYear
-    ? selectedYear.salary + selectedYear.cpp + selectedYear.oas + selectedYear.rrsp_withdrawal + selectedYear.non_reg_capital_gain_inclusion
+    ? selectedYear.salary + selectedYear.db_pension + selectedYear.cpp + selectedYear.oas + selectedYear.rrsp_withdrawal + selectedYear.non_reg_capital_gain_inclusion
     : 0;
   const effectiveRate = selectedYear && taxableIncome > 0 ? selectedYear.total_tax / taxableIncome : 0;
 
@@ -87,6 +96,14 @@ export default function TaxVerificationPanel({
 
   return (
     <div className="space-y-6">
+      {showTaxExplainModal && selectedYear && (
+        <VerificationTaxExplainModal
+          scenario={scenario}
+          projections={projections}
+          selectedYear={selectedYear}
+          onClose={() => setShowTaxExplainModal(false)}
+        />
+      )}
 
       <div className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm ${
         taxDataStatus === 'live'
@@ -167,19 +184,21 @@ export default function TaxVerificationPanel({
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Income Sources</p>
                   <div className="space-y-1.5">
                     {[
-                      { label: 'Employment / Pension Income', value: selectedYear.primary_salary, taxable: true },
+                      { label: 'Employment / DB Pension Income', value: employmentAndPensionIncome, taxable: true },
                       { label: 'CPP Benefits', value: selectedYear.cpp, taxable: true },
                       { label: 'OAS Benefits', value: selectedYear.oas, taxable: true },
                       { label: 'RRSP / RRIF Withdrawals', value: selectedYear.rrsp_withdrawal, taxable: true },
-                      { label: `Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal)} total)`, value: selectedYear.non_reg_capital_gain_inclusion, taxable: 'partial' as const },
+                      ...(!showAttributedNonRegDetails && selectedYear.non_reg_capital_gain_inclusion > 0
+                        ? [{ label: `Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal)} total)`, value: selectedYear.non_reg_capital_gain_inclusion, taxable: 'partial' as const }]
+                        : []),
                       {
                         label: `Primary Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal_primary ?? 0)})`,
-                        value: selectedYear.non_reg_capital_gain_inclusion_primary ?? 0,
+                        value: primaryNonRegGain,
                         taxable: 'partial' as const
                       },
                       {
                         label: `Spouse Non-Reg. Withdrawal (${formatCurrency(selectedYear.non_reg_withdrawal_spouse ?? 0)})`,
-                        value: selectedYear.non_reg_capital_gain_inclusion_spouse ?? 0,
+                        value: spouseNonRegGain,
                         taxable: 'partial' as const
                       },
                       { label: 'TFSA Withdrawals', value: selectedYear.tfsa_withdrawal, taxable: false },
@@ -202,7 +221,18 @@ export default function TaxVerificationPanel({
                 </div>
 
                 <div>
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Tax Calculation</p>
+                  <div className="mb-2 flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Tax Calculation</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowTaxExplainModal(true)}
+                      className="text-gray-400 transition-colors hover:text-blue-600"
+                      title="Show detailed tax explanation"
+                      aria-label="Show detailed tax explanation"
+                    >
+                      <HelpCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                   <div className="space-y-1">
                     {[
                       { label: 'Federal Tax (projected)', value: selectedYear.federal_tax },

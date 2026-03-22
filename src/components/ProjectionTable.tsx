@@ -8,8 +8,7 @@ import {
   OAS_CLAWBACK_THRESHOLD_2026,
   OAS_CLAWBACK_RATE,
   OAS_MAX_CLAWBACK_THRESHOLD_2026,
-  FEDERAL_BRACKETS_2026,
-  calcTieredCapitalGainInclusion
+  FEDERAL_BRACKETS_2026
 } from '../lib/taxEngine';
 
 interface ProjectionTableProps {
@@ -364,11 +363,7 @@ export default function ProjectionTable({
                         const preTax = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_withdrawal;
                         const effRate = preTax > 0 ? (row.total_tax / preTax) * 100 : 0;
                         const yr = row.year - 1;
-                        const nonRegGrowthRatio = (row.non_reg_balance + row.non_reg_withdrawal) > 0
-                          ? Math.max(0, ((row.non_reg_balance + row.non_reg_withdrawal) - row.non_reg_acb) / (row.non_reg_balance + row.non_reg_withdrawal))
-                          : 0;
-                        const nonRegCapGain = row.non_reg_withdrawal * nonRegGrowthRatio;
-                        const nonRegTaxable = calcTieredCapitalGainInclusion(nonRegCapGain, yr);
+                        const nonRegTaxable = row.non_reg_capital_gain_inclusion;
                         return (
                           <tr key={row.age} style={{ height: ROW_HEIGHT }}
                             className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}>

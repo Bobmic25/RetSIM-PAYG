@@ -53,8 +53,14 @@ export interface TaxAudit {
   federalBPACredit: number;
   provincialBPA: number;
   provincialBPACredit: number;
+  ageAmount: number;
+  ageAmountCredit: number;
+  pensionIncomeCreditBase: number;
+  pensionIncomeCredit: number;
   federalNetTax: number;
   provincialNetTax: number;
+  ontarioSurtax: number;
+  ontarioHealthPremium: number;
   cppContribution: number;
   eiContribution: number;
   oasClawback: number;
@@ -437,12 +443,14 @@ export function computeTaxAudit(
 
   let baseProvincialNetTax = Math.max(0, provAudit.total - provincialBPACredit - dividendProvincialCredit);
   let provincialNetTax = baseProvincialNetTax;
+  let ontarioSurtax = 0;
+  let ontarioHealthPremium = 0;
 
   if (province === 'ON') {
     const factor = yearIndex > 0 ? Math.pow(1 + inflationRate / 100, yearIndex) : 1;
-    const surtax = calcOntarioSurtax(baseProvincialNetTax, factor);
-    const healthPremium = calcOntarioHealthPremium(income, factor);
-    provincialNetTax = baseProvincialNetTax + surtax + healthPremium;
+    ontarioSurtax = calcOntarioSurtax(baseProvincialNetTax, factor);
+    ontarioHealthPremium = calcOntarioHealthPremium(income, factor);
+    provincialNetTax = baseProvincialNetTax + ontarioSurtax + ontarioHealthPremium;
   }
 
   const cppContribution = calcCPPContribution(employmentIncome);
@@ -461,8 +469,14 @@ export function computeTaxAudit(
     federalBPACredit,
     provincialBPA: taxData.provincialBPA,
     provincialBPACredit,
+    ageAmount: ageAmountValue,
+    ageAmountCredit,
+    pensionIncomeCreditBase: pensionCreditBase,
+    pensionIncomeCredit,
     federalNetTax,
     provincialNetTax,
+    ontarioSurtax,
+    ontarioHealthPremium,
     cppContribution,
     eiContribution,
     oasClawback,

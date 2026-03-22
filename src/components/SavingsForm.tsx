@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { Plus, Trash2, HelpCircle, X } from 'lucide-react'; // Added HelpCircle
 import { SavingsAccount, Scenario } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
+import { LiveTfsaLimitData } from '../lib/tfsaDataService';
+import { MAX_AGE, clampAge } from '../lib/ageUtils';
 
 interface SavingsFormProps {
   accounts: SavingsAccount[];
   onChange: (accounts: SavingsAccount[]) => void;
   scenario: Scenario;
+  tfsaLimitData?: LiveTfsaLimitData | null;
 }
 
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -27,20 +30,26 @@ function Toggle({ labelA, labelB, active, onToggle }: { labelA: string; labelB: 
   );
 }
 
-function AccountCard({ account, index, onUpdate, onRemove, retirementAge }: {
+function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLimitData }: {
   account: SavingsAccount; index: number;
   onUpdate: (i: number, u: Partial<SavingsAccount>) => void;
   onRemove: (i: number) => void;
   retirementAge: number;
+  tfsaLimitData?: LiveTfsaLimitData | null;
 }) {
   const [contribUnit, setContribUnit] = useState<'Yearly' | 'Monthly'>('Yearly');
   const [showRRSPHelp, setShowRRSPHelp] = useState(false);
   const storedMonthly = account.monthly_contribution;
   const displayContrib = contribUnit === 'Monthly' ? storedMonthly : storedMonthly * 12;
+  const tfsaMonthlyLimit = tfsaLimitData ? tfsaLimitData.annualLimit / 12 : null;
 
   const handleContribChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = parseFloat(e.target.value.replace(/[$,]/g, '')) || 0;
-    onUpdate(index, { monthly_contribution: contribUnit === 'Monthly' ? raw : raw / 12 });
+    const monthlyContribution = contribUnit === 'Monthly' ? raw : raw / 12;
+    const clampedContribution = account.account_type === 'tfsa' && tfsaMonthlyLimit != null
+      ? Math.min(monthlyContribution, tfsaMonthlyLimit)
+      : monthlyContribution;
+    onUpdate(index, { monthly_contribution: clampedContribution });
   };
 
   const handleBalanceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,11 +129,17 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge }: {
               ? `${formatCurrency(storedMonthly)} /mo`
               : `${formatCurrency(storedMonthly * 12)} /yr`}
           </p>
+          {account.account_type === 'tfsa' && tfsaLimitData && (
+            <p className={`text-xs mt-1 ${tfsaLimitData.isLive ? 'text-green-700' : 'text-amber-700'}`}>
+              TFSA contribution is capped at {formatCurrency(tfsaLimitData.annualLimit)} /yr
+              ({formatCurrency(tfsaLimitData.annualLimit / 12)} /mo) based on {tfsaLimitData.isLive ? 'live startup lookup' : 'built-in fallback'} for {tfsaLimitData.year}.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Contribution End Age</label>
-          <input type="number" value={account.contribution_end_age} min={18} max={100}
-            onChange={e => onUpdate(index, { contribution_end_age: parseInt(e.target.value) || retirementAge })}
+          <input type="number" value={account.contribution_end_age} min={18} max={MAX_AGE}
+            onChange={e => onUpdate(index, { contribution_end_age: clampAge(parseInt(e.target.value), retirementAge) })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
         </div>
         <div className="md:col-span-2">
@@ -147,13 +162,14 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge }: {
   );
 }
 
-function PersonSection({ label, accentClass, accounts, onAdd, onUpdate, onRemove, retirementAge }: {
+function PersonSection({ label, accentClass, accounts, onAdd, onUpdate, onRemove, retirementAge, tfsaLimitData }: {
   label: string; accentClass: string;
   accounts: SavingsAccount[];
   onAdd: () => void;
   onUpdate: (i: number, u: Partial<SavingsAccount>) => void;
   onRemove: (i: number) => void;
   retirementAge: number;
+  tfsaLimitData?: LiveTfsaLimitData | null;
 }) {
   return (
     <div className={`rounded-lg border p-4 ${accentClass}`}>
@@ -168,7 +184,7 @@ function PersonSection({ label, accentClass, accounts, onAdd, onUpdate, onRemove
         ? <p className="text-gray-500 text-sm text-center py-4">No accounts added.</p>
         : accounts.map((a, i) => (
           <div key={i} className="mb-3">
-            <AccountCard account={a} index={i} onUpdate={onUpdate} onRemove={onRemove} retirementAge={retirementAge} />
+            <AccountCard account={a} index={i} onUpdate={onUpdate} onRemove={onRemove} retirementAge={retirementAge} tfsaLimitData={tfsaLimitData} />
           </div>
         ))
       }
@@ -176,10 +192,17 @@ function PersonSection({ label, accentClass, accounts, onAdd, onUpdate, onRemove
   );
 }
 
-export default function SavingsForm({ accounts, onChange, scenario }: SavingsFormProps) {
+export default function SavingsForm({ accounts, onChange, scenario, tfsaLimitData }: SavingsFormProps) {
   const isCouple = scenario.profile_type === 'couple';
   const primary = accounts.filter(a => a.person === 'primary');
   const spouse = accounts.filter(a => a.person === 'spouse');
+  const tfsaMonthlyLimit = tfsaLimitData ? tfsaLimitData.annualLimit / 12 : null;
+
+  const applyTfsaCap = (account: SavingsAccount): SavingsAccount => {
+    if (account.account_type !== 'tfsa' || tfsaMonthlyLimit == null) return account;
+    if (account.monthly_contribution <= tfsaMonthlyLimit) return account;
+    return { ...account, monthly_contribution: tfsaMonthlyLimit };
+  };
 
   const addAccount = (person: 'primary' | 'spouse') => {
     onChange([...accounts, { person, account_type: 'rrsp', current_balance: 0, monthly_contribution: 0, contribution_end_age: scenario.retirement_age }]);
@@ -190,7 +213,10 @@ export default function SavingsForm({ accounts, onChange, scenario }: SavingsFor
     let count = 0;
     for (let i = 0; i < all.length; i++) {
       if (all[i].person === person) {
-        if (count === localIndex) { all[i] = { ...all[i], ...updates }; break; }
+        if (count === localIndex) {
+          all[i] = applyTfsaCap({ ...all[i], ...updates });
+          break;
+        }
         count++;
       }
     }
@@ -221,9 +247,14 @@ export default function SavingsForm({ accounts, onChange, scenario }: SavingsFor
           ? <p className="text-center py-8 text-gray-500">No accounts added.</p>
           : accounts.map((a, i) => (
             <AccountCard key={i} account={a} index={i}
-              onUpdate={(_, u) => { const upd = [...accounts]; upd[i] = { ...upd[i], ...u }; onChange(upd); }}
+              onUpdate={(_, u) => {
+                const upd = [...accounts];
+                upd[i] = applyTfsaCap({ ...upd[i], ...u });
+                onChange(upd);
+              }}
               onRemove={idx => onChange(accounts.filter((_, ii) => ii !== idx))}
-              retirementAge={scenario.retirement_age} />
+              retirementAge={scenario.retirement_age}
+              tfsaLimitData={tfsaLimitData} />
           ))
         }
       </div>
@@ -237,12 +268,14 @@ export default function SavingsForm({ accounts, onChange, scenario }: SavingsFor
         accounts={primary} onAdd={() => addAccount('primary')}
         onUpdate={(i, u) => updateByPerson('primary', i, u)}
         onRemove={i => removeByPerson('primary', i)}
-        retirementAge={scenario.retirement_age} />
+        retirementAge={scenario.retirement_age}
+        tfsaLimitData={tfsaLimitData} />
       <PersonSection label="Spouse" accentClass="bg-cyan-50 border-cyan-200"
         accounts={spouse} onAdd={() => addAccount('spouse')}
         onUpdate={(i, u) => updateByPerson('spouse', i, u)}
         onRemove={i => removeByPerson('spouse', i)}
-        retirementAge={scenario.retirement_age} />
+        retirementAge={scenario.retirement_age}
+        tfsaLimitData={tfsaLimitData} />
     </div>
   );
 }

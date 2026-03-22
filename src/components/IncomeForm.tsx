@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { IncomeSource, Scenario } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
+import { MAX_AGE, clampAge } from '../lib/ageUtils';
 
 interface IncomeFormProps {
   incomeSources: IncomeSource[];
@@ -56,14 +57,14 @@ function IncomeCard({ source, index, onUpdate, onRemove, currentAge }: {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Start Age</label>
-          <input type="number" value={source.start_age} min={18} max={100}
-            onChange={e => onUpdate(index, { start_age: parseInt(e.target.value) || currentAge })}
+          <input type="number" value={source.start_age} min={18} max={MAX_AGE}
+            onChange={e => onUpdate(index, { start_age: clampAge(parseInt(e.target.value), currentAge) })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">End Age (optional)</label>
-          <input type="number" value={source.end_age || ''} min={18} max={100}
-            onChange={e => onUpdate(index, { end_age: e.target.value ? parseInt(e.target.value) : undefined })}
+          <input type="number" value={source.end_age || ''} min={18} max={MAX_AGE}
+            onChange={e => onUpdate(index, { end_age: e.target.value ? clampAge(parseInt(e.target.value), source.end_age || source.start_age) : undefined })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="Leave blank for lifetime" />
         </div>
       </div>

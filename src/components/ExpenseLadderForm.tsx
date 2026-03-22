@@ -1,6 +1,7 @@
 import { Plus, Trash2, Info } from 'lucide-react';
 import { ExpenseLadder, Scenario } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
+import { MAX_AGE, clampAge } from '../lib/ageUtils';
 
 interface ExpenseLadderFormProps {
   expenses: ExpenseLadder[];
@@ -29,7 +30,7 @@ export default function ExpenseLadderForm({ expenses, onChange, scenario }: Expe
     if (expenses.length === 0) {
       onChange([{
         start_age: scenario.retirement_age,
-        end_age: scenario.retirement_age + 10,
+        end_age: Math.min(MAX_AGE, scenario.retirement_age + 10),
         living_expenses: 60000,
         travel_expenses: 10000,
         other_expenses: 5000
@@ -41,8 +42,8 @@ export default function ExpenseLadderForm({ expenses, onChange, scenario }: Expe
     const prevSecond = expenses.length >= 2 ? expenses[expenses.length - 2] : null;
 
     onChange([...expenses, {
-      start_age: last.end_age + 1,
-      end_age: last.end_age + 11,
+      start_age: Math.min(MAX_AGE, last.end_age + 1),
+      end_age: Math.min(MAX_AGE, last.end_age + 11),
       living_expenses: prevSecond ? last.living_expenses : last.living_expenses,
       travel_expenses: prevSecond ? last.travel_expenses : last.travel_expenses,
       other_expenses: prevSecond ? last.other_expenses : last.other_expenses
@@ -132,8 +133,8 @@ export default function ExpenseLadderForm({ expenses, onChange, scenario }: Expe
                   type="number"
                   value={step.start_age}
                   min={18}
-                  max={120}
-                  onChange={e => updateStep(index, { start_age: parseInt(e.target.value) || step.start_age })}
+                  max={MAX_AGE}
+                  onChange={e => updateStep(index, { start_age: clampAge(parseInt(e.target.value), step.start_age) })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>
@@ -143,8 +144,8 @@ export default function ExpenseLadderForm({ expenses, onChange, scenario }: Expe
                   type="number"
                   value={step.end_age}
                   min={step.start_age}
-                  max={120}
-                  onChange={e => updateStep(index, { end_age: parseInt(e.target.value) || step.end_age })}
+                  max={MAX_AGE}
+                  onChange={e => updateStep(index, { end_age: clampAge(parseInt(e.target.value), step.end_age, step.start_age) })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>

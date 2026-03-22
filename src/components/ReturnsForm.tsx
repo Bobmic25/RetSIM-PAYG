@@ -128,7 +128,7 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
                 scenario.return_type === type ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
               }`}>
               {type === 'linear' ? (
-                <span className="flex items-center justify-center gap-1.5">Linear (Fixed / Step)<span className="text-[10px] font-normal bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Default</span></span>
+                <span className="flex items-center justify-center gap-1.5">Manual input<span className="text-[10px] font-normal bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Default</span></span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
                   Monte Carlo (Volatile)
@@ -196,7 +196,7 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
             <option value="rrsp_meltdown">RRSP Meltdown (Early Withdrawal)</option>
           </select>
           {scenario.withdrawal_strategy === 'net_expenses_only' && (
-            <p className="text-xs text-gray-500 mt-1">Only withdraws the minimum needed to meet net expenses. Skips bracket-filling and RRSP exhaustion.</p>
+            <p className="text-xs text-gray-500 mt-1">Covers net expenses without bracket-filling, but still enforces the RRSP exhaustion target age when forced RRSP drawdown is required.</p>
           )}
           {scenario.withdrawal_strategy === 'rrsp_meltdown' && (
             <p className="text-xs text-gray-500 mt-1">Prioritizes smoother early RRSP withdrawal and targets full RRSP exhaustion before the end of plan. Uses Non-Registered as secondary and TFSA as last resort.</p>
@@ -220,7 +220,7 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
             </p>
             {scenario.withdrawal_strategy === 'net_expenses_only' && (
               <p className="text-xs text-amber-700 mt-1">
-                Note: Net Expenses Only minimizes withdrawals and can override this target.
+                Note: Net Expenses Only still follows this RRSP exhaustion target. Any forced excess withdrawal is re-invested to non-registered savings.
               </p>
             )}
           </div>

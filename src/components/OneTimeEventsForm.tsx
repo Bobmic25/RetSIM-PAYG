@@ -1,6 +1,7 @@
 import { Plus, Trash2, Info } from 'lucide-react';
 import { OneTimeEvent, Scenario } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
+import { MAX_AGE, clampAge } from '../lib/ageUtils';
 
 interface OneTimeEventsFormProps {
   events: OneTimeEvent[];
@@ -15,7 +16,7 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
       {
         event_type: 'expense',
         name: '',
-        age: 65,
+        age: Math.min(MAX_AGE, 65),
         amount: 0,
         tax_rate: undefined
       }
@@ -106,10 +107,10 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
               <input
                 type="number"
                 value={event.age}
-                onChange={(e) => updateEvent(index, { age: parseInt(e.target.value) })}
+                onChange={(e) => updateEvent(index, { age: clampAge(parseInt(e.target.value), event.age) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                 min="18"
-                max="120"
+                max={MAX_AGE}
               />
             </div>
 

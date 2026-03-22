@@ -117,12 +117,11 @@ export function generateSuggestions(
     suggestions.push({
       id: 'net_expenses_only',
       title: 'Satisfy Net Expenses Only',
-      description: 'Your current strategy may withdraw more than required for living expenses, sending the excess into taxable non-registered accounts. Switching to "Satisfy Net Expenses Only" withdraws the precise gross amount needed to cover your spending after tax.',
-      benefit: 'Eliminate unnecessary withdrawals and re-investment cycles, reducing lifetime tax drag and preserving registered account room.',
+      description: 'Your current strategy may withdraw more than required for living expenses, sending the excess into taxable non-registered accounts. Switching to "Satisfy Net Expenses Only" targets net spending needs while still respecting the configured RRSP exhaustion schedule.',
+      benefit: 'Reduce bracket-filling behavior while keeping the plan on its RRSP depletion timeline instead of letting registered balances pile up to later years.',
       overrides: {
         withdrawalStrategy: 'net_expenses_only',
-        disableBracketFilling: true,
-        disableForcedWithdrawals: true
+        disableBracketFilling: true
       },
       priority: 4
     });

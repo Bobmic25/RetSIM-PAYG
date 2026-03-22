@@ -568,12 +568,13 @@ function calculateOptimizedWithdrawals(
     }
   }
 
-  // RRSP exhaustion logic - apply based on strategy, skipped for net_expenses_only
-  const shouldApplyExhaustion = !disableForcedWithdrawals && !isNetExpensesOnly &&
+  // RRSP exhaustion logic - apply based on strategy, including net_expenses_only.
+  const shouldApplyExhaustion = !disableForcedWithdrawals &&
     (
       withdrawalStrategy === 'maximize_spending' ||
       withdrawalStrategy === 'tax_efficient' ||
       withdrawalStrategy === 'maximize_estate' ||
+      withdrawalStrategy === 'net_expenses_only' ||
       withdrawalStrategy === undefined
     );
 
@@ -938,6 +939,8 @@ export function runSingleProjection(
     const preWithdrawalTfsa = balances.tfsa;
     const preWithdrawalFhsa = balances.fhsa;
     const preWithdrawalNonReg = balances.non_reg_primary + balances.non_reg_spouse;
+    const preWithdrawalNonRegPrimary = balances.non_reg_primary;
+    const preWithdrawalNonRegSpouse = balances.non_reg_spouse;
 
     const isRetired = age >= effectiveRetirementAge;
     const withdrawals = calculateOptimizedWithdrawals(
@@ -971,9 +974,13 @@ export function runSingleProjection(
     const tfsaDrag = tfsaUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
     const tfsaMarketReturn = preWithdrawalTfsa * ((returnRate - tfsaDrag) / 100);
     const fhsaMarketReturn = preWithdrawalFhsa * (returnRate / 100);
-    const nonRegUsWeight = getAccountUsEquityWeight('non_reg', yearAllocations);
-    const nonRegDrag = nonRegUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
-    const nonRegMarketReturn = preWithdrawalNonReg * ((returnRate - nonRegDrag) / 100);
+    const nonRegPrimaryUsWeight = getAccountUsEquityWeight('non_reg', yearAllocations, 'primary');
+    const nonRegPrimaryDrag = nonRegPrimaryUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+    const nonRegMarketReturnPrimary = preWithdrawalNonRegPrimary * ((returnRate - nonRegPrimaryDrag) / 100);
+    const nonRegSpouseUsWeight = getAccountUsEquityWeight('non_reg', yearAllocations, 'spouse');
+    const nonRegSpouseDrag = nonRegSpouseUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+    const nonRegMarketReturnSpouse = preWithdrawalNonRegSpouse * ((returnRate - nonRegSpouseDrag) / 100);
+    const nonRegMarketReturn = nonRegMarketReturnPrimary + nonRegMarketReturnSpouse;
 
     const pensionIncomeForCredit = cpp + withdrawals.rrsp + dbPensionBase;
     const primaryTaxableIncome = primarySalary + cpp + oas + dbPensionBase + withdrawals.rrsp + withdrawals.cap_gain_primary;
@@ -1045,22 +1052,23 @@ export function runSingleProjection(
       const withdrawalAfterTax = withdrawalsWithTax - totalTax;
       const exactAmountNeeded = totalExpensesNeeded - guaranteedIncome;
       surplus = withdrawalAfterTax - exactAmountNeeded;
-      surplusToNonReg = 0;
+      surplusToNonReg = surplus > 0 ? surplus : 0;
     } else {
       surplusToNonReg = surplus > 0 ? surplus : 0;
-      if (surplusToNonReg > 0) {
-        if (isCouple) {
-          const primaryShare = 0.5;
-          const toPrimary = surplusToNonReg * primaryShare;
-          const toSpouse = surplusToNonReg - toPrimary;
-          balances.non_reg_primary += toPrimary;
-          balances.non_reg_primary_acb += toPrimary;
-          balances.non_reg_spouse += toSpouse;
-          balances.non_reg_spouse_acb += toSpouse;
-        } else {
-          balances.non_reg_primary += surplusToNonReg;
-          balances.non_reg_primary_acb += surplusToNonReg;
-        }
+    }
+
+    if (surplusToNonReg > 0) {
+      if (isCouple) {
+        const primaryShare = 0.5;
+        const toPrimary = surplusToNonReg * primaryShare;
+        const toSpouse = surplusToNonReg - toPrimary;
+        balances.non_reg_primary += toPrimary;
+        balances.non_reg_primary_acb += toPrimary;
+        balances.non_reg_spouse += toSpouse;
+        balances.non_reg_spouse_acb += toSpouse;
+      } else {
+        balances.non_reg_primary += surplusToNonReg;
+        balances.non_reg_primary_acb += surplusToNonReg;
       }
     }
 
@@ -1105,6 +1113,8 @@ export function runSingleProjection(
       total_income: guaranteedIncome,
       tfsa_withdrawal: withdrawals.tfsa,
       rrsp_withdrawal: withdrawals.rrsp + withdrawals.rrsp_spouse,
+      rrsp_withdrawal_primary: withdrawals.rrsp,
+      rrsp_withdrawal_spouse: withdrawals.rrsp_spouse,
       non_reg_withdrawal: nonRegWithdrawal,
       non_reg_withdrawal_primary: withdrawals.non_reg_primary,
       non_reg_withdrawal_spouse: withdrawals.non_reg_spouse,
@@ -1145,7 +1155,9 @@ export function runSingleProjection(
       rrsp_market_return: rrspMarketReturn,
       tfsa_market_return: tfsaMarketReturn,
       fhsa_market_return: fhsaMarketReturn,
-      non_reg_market_return: nonRegMarketReturn
+      non_reg_market_return: nonRegMarketReturn,
+      non_reg_market_return_primary: nonRegMarketReturnPrimary,
+      non_reg_market_return_spouse: nonRegMarketReturnSpouse
     });
   }
 

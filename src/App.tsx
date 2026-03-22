@@ -29,6 +29,7 @@ import {
 } from './types/retirement';
 import { runSingleProjection, type ProjectionOverrides } from './lib/projectionEngine';
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
+import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataService';
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
 
@@ -174,6 +175,7 @@ function App() {
   const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [liveTaxData, setLiveTaxData] = useState<LiveTaxData | null>(null);
   const [taxDataStatus, setTaxDataStatus] = useState<'loading' | 'live' | 'fallback'>('loading');
+  const [tfsaLimitData, setTfsaLimitData] = useState<LiveTfsaLimitData | null>(null);
   const calculationPending = useRef(false);
 
   useEffect(() => {
@@ -186,6 +188,20 @@ function App() {
         setActiveLiveTaxData(null);
         setTaxDataStatus('fallback');
       }
+    });
+
+    fetchLiveTfsaLimit().then(data => {
+      setTfsaLimitData(data);
+      setSavingsAccounts(prev => {
+        const monthlyLimit = data.annualLimit / 12;
+        let changed = false;
+        const next = prev.map(account => {
+          if (account.account_type !== 'tfsa' || account.monthly_contribution <= monthlyLimit) return account;
+          changed = true;
+          return { ...account, monthly_contribution: monthlyLimit };
+        });
+        return changed ? next : prev;
+      });
     });
   }, []);
 
@@ -397,7 +413,7 @@ function App() {
               <IncomeForm incomeSources={incomeSources} onChange={setIncomeSources} scenario={scenario} />
             )}
             {currentStep === 2 && (
-              <SavingsForm accounts={savingsAccounts} onChange={setSavingsAccounts} scenario={scenario} />
+              <SavingsForm accounts={savingsAccounts} onChange={setSavingsAccounts} scenario={scenario} tfsaLimitData={tfsaLimitData} />
             )}
             {currentStep === 3 && (
               <AssetAllocationForm

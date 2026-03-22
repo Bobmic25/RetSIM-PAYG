@@ -130,6 +130,8 @@ export interface YearlyProjection {
   total_income: number;
   tfsa_withdrawal: number;
   rrsp_withdrawal: number;
+  rrsp_withdrawal_primary?: number;
+  rrsp_withdrawal_spouse?: number;
   non_reg_withdrawal: number;
   non_reg_withdrawal_primary?: number;
   non_reg_withdrawal_spouse?: number;
@@ -173,6 +175,8 @@ export interface YearlyProjection {
   tfsa_market_return?: number;
   fhsa_market_return?: number;
   non_reg_market_return?: number;
+  non_reg_market_return_primary?: number;
+  non_reg_market_return_spouse?: number;
 }
 
 export interface MonteCarloResult {
