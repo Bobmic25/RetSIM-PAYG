@@ -199,8 +199,31 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
             <p className="text-xs text-gray-500 mt-1">Only withdraws the minimum needed to meet net expenses. Skips bracket-filling and RRSP exhaustion.</p>
           )}
           {scenario.withdrawal_strategy === 'rrsp_meltdown' && (
-            <p className="text-xs text-gray-500 mt-1">Prioritizes early RRSP withdrawal (meltdown) based on life expectancy. Maximizes RRSP usage early, uses Non-Registered as secondary, keeps TFSA as last resort.</p>
+            <p className="text-xs text-gray-500 mt-1">Prioritizes smoother early RRSP withdrawal and targets full RRSP exhaustion before the end of plan. Uses Non-Registered as secondary and TFSA as last resort.</p>
           )}
+
+          <div className="mt-3">
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Target RRSP Exhaustion (Years Before Plan End)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={25}
+              step={1}
+              value={scenario.rrsp_exhaustion_years_before_end ?? 2}
+              onChange={e => onChange({ rrsp_exhaustion_years_before_end: Math.max(1, Math.min(25, parseInt(e.target.value, 10) || 2)) })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Example: `2` means RRSP is targeted to be fully exhausted by two years before the plan end age.
+            </p>
+            {scenario.withdrawal_strategy === 'net_expenses_only' && (
+              <p className="text-xs text-amber-700 mt-1">
+                Note: Net Expenses Only minimizes withdrawals and can override this target.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

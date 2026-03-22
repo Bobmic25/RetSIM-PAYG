@@ -23,6 +23,7 @@ export interface Scenario {
   return_std_dev?: number;
   monte_carlo_iterations: number;
   withdrawal_strategy: WithdrawalStrategy;
+  rrsp_exhaustion_years_before_end?: number;
   cpp_start_age: number;
   cpp_amount_65: number;
   oas_start_age: number;

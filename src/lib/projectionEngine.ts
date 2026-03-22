@@ -10,7 +10,6 @@
 } from '../types/retirement';
 import {
   calculateTotalTax,
-  calculateOptimalPensionSplit,
   getFirstBracketTop,
   getOASClawbackThreshold,
   calcTieredCapitalGainInclusion,
@@ -323,7 +322,9 @@ function calculateOptimizedWithdrawals(
   lifeExpectancy?: number,
   spouseLifeExpectancy?: number,
   currentRetirementAge?: number,
-  expectedReturn?: number
+  expectedReturn?: number,
+  planEndAge?: number,
+  rrspExhaustYearsBeforeEnd?: number
 ): WithdrawalResult {
   let remaining = needed;
   const result: WithdrawalResult = {
@@ -362,48 +363,66 @@ function calculateOptimizedWithdrawals(
 
   // RRSP MELTDOWN STRATEGY: Prioritize early RRSP withdrawal based on life expectancy
   const isMeltdownStrategy = withdrawalStrategy === 'rrsp_meltdown';
-  if (isMeltdownStrategy && isRetired && lifeExpectancy && lifeExpectancy > 0 && expectedReturn != null) {
-    const yearsFromRetirement = year - (retirementYearIndex ?? 0);
-    const currentRetAge = currentRetirementAge ?? age;
-    
-    // Calculate meltdown target withdrawal
+  if (isMeltdownStrategy && isRetired && expectedReturn != null) {
+    const targetExhaustAge =
+      (planEndAge ?? (currentRetirementAge ?? age) + 30) - Math.max(1, rrspExhaustYearsBeforeEnd ?? 2);
+
+    // Calculate smooth melt-down target that exhausts by configured target age.
     const meltdownTarget = computeRrspMeltdownSchedule(
       age,
-      lifeExpectancy,
-      currentRetAge,
+      targetExhaustAge,
       totalRrsp,
-      expectedReturn,
-      inflationRate,
-      yearsFromRetirement
+      expectedReturn
     );
 
-    // Meltdown strategy: Withdraw RRSP first, then non-registered, keep TFSA last
+    // Meltdown strategy: follow a smooth annual RRSP target regardless of shortfall.
+    // Any excess cash later flows to non-registered accounts as surplus.
     if (meltdownTarget > 0 && totalRrsp > 0) {
-      const rrspToWithdraw = Math.min(meltdownTarget, totalRrsp, needed > 0 ? needed + (needed * 0.5) : meltdownTarget);
+      const additionalTarget = Math.max(0, meltdownTarget - result.rrifMinimum);
+      const rrspToWithdraw = Math.min(additionalTarget, balances.rrsp + balances.rrsp_spouse);
 
-      if (isCouple && balances.rrsp_spouse > 0 && spouseIncome !== undefined && spouseLifeExpectancy && spouseLifeExpectancy > 0) {
-        // Distribute between primary and spouse based on their life expectancy proportions
-        const totalLifeExpectancy = lifeExpectancy + spouseLifeExpectancy;
-        const primaryProportion = lifeExpectancy / totalLifeExpectancy;
-        
-        const fromPrimary = Math.min(rrspToWithdraw * primaryProportion, balances.rrsp);
-        const fromSpouse = Math.min(rrspToWithdraw * (1 - primaryProportion), balances.rrsp_spouse);
+      if (isCouple && balances.rrsp_spouse > 0 && spouseIncome !== undefined) {
+        // Distribute between primary and spouse with a stable ratio.
+        const primaryProportion =
+          lifeExpectancy && spouseLifeExpectancy && (lifeExpectancy + spouseLifeExpectancy) > 0
+            ? lifeExpectancy / (lifeExpectancy + spouseLifeExpectancy)
+            : balances.rrsp > 0 || balances.rrsp_spouse > 0
+              ? balances.rrsp / Math.max(1, balances.rrsp + balances.rrsp_spouse)
+              : 0.5;
+
+        let fromPrimary = Math.min(rrspToWithdraw * primaryProportion, balances.rrsp);
+        let fromSpouse = Math.min(rrspToWithdraw * (1 - primaryProportion), balances.rrsp_spouse);
+
+        const drawn = fromPrimary + fromSpouse;
+        const remainder = rrspToWithdraw - drawn;
+        if (remainder > 0) {
+          const extraPrimary = Math.min(remainder, Math.max(0, balances.rrsp - fromPrimary));
+          fromPrimary += extraPrimary;
+          const extraSpouse = Math.min(remainder - extraPrimary, Math.max(0, balances.rrsp_spouse - fromSpouse));
+          fromSpouse += extraSpouse;
+        }
         
         result.rrsp += fromPrimary;
         result.rrsp_spouse += fromSpouse;
         balances.rrsp -= fromPrimary;
         balances.rrsp_spouse -= fromSpouse;
-        remaining -= Math.min(remaining, fromPrimary + fromSpouse);
+        if (remaining > 0) {
+          remaining -= Math.min(remaining, fromPrimary + fromSpouse);
+        }
       } else if (balances.rrsp > 0) {
         const fromRRSP = Math.min(rrspToWithdraw, balances.rrsp);
         result.rrsp += fromRRSP;
         balances.rrsp -= fromRRSP;
-        remaining -= Math.min(remaining, fromRRSP);
+        if (remaining > 0) {
+          remaining -= Math.min(remaining, fromRRSP);
+        }
       } else if (balances.rrsp_spouse > 0) {
         const fromSpouse = Math.min(rrspToWithdraw, balances.rrsp_spouse);
         result.rrsp_spouse += fromSpouse;
         balances.rrsp_spouse -= fromSpouse;
-        remaining -= Math.min(remaining, fromSpouse);
+        if (remaining > 0) {
+          remaining -= Math.min(remaining, fromSpouse);
+        }
       }
     }
   }
@@ -689,9 +708,10 @@ function computeRrspExhaustionTarget(
   retirementAge: number,
   planEndAge: number,
   expectedReturn: number,
-  inflationRate: number
+  inflationRate: number,
+  yearsBeforeEnd: number = 2
 ): number {
-  const targetAge = planEndAge - 2;
+  const targetAge = planEndAge - Math.max(1, yearsBeforeEnd);
   if (targetAge <= retirementAge || rrspAtRetirement <= 0) return 0;
 
   const totalYearsToTarget = targetAge - retirementAge;
@@ -731,54 +751,30 @@ function computeRrspExhaustionTarget(
 
 function computeRrspMeltdownSchedule(
   currentAge: number,
-  lifeExpectancy: number,
-  retirementAge: number,
+  targetExhaustAge: number,
   rrspBalance: number,
-  expectedReturn: number,
-  inflationRate: number,
-  yearFromRetirement: number
+  expectedReturn: number
 ): number {
-  // Calculate RRSP meltdown annual withdrawal for a given year
-  // Strategy: Maximize early RRSP usage, scale based on remaining years to life expectancy
-  
-  if (currentAge >= lifeExpectancy || rrspBalance <= 0 || retirementAge > currentAge) {
+  // Smooth melt-down target: an annuity draw that exhausts RRSP by target age.
+  if (rrspBalance <= 0) {
     return 0;
   }
 
-  const yearsToExpectancy = Math.max(1, lifeExpectancy - currentAge);
-  const yearsSinceRetirement = Math.max(0, currentAge - retirementAge);
+  if (currentAge >= targetExhaustAge) {
+    return rrspBalance;
+  }
+
+  const remainingYears = Math.max(1, targetExhaustAge - currentAge + 1);
   const r = expectedReturn / 100;
-  const inf = inflationRate / 100;
 
-  // Calculate remaining years of projection
-  const remainingYears = yearsToExpectancy - yearsSinceRetirement;
-  if (remainingYears <= 0) {
-    return rrspBalance; // Last year - withdraw everything
+  let annuityTarget: number;
+  if (Math.abs(r) < 1e-9) {
+    annuityTarget = rrspBalance / remainingYears;
+  } else {
+    annuityTarget = rrspBalance * (r / (1 - Math.pow(1 + r, -remainingYears)));
   }
 
-  // Progressive withdrawal: Earlier years get higher percentage, later years get lower
-  // This is a declining percentage approach where early retirements have aggressive draws
-  const progressionFactor = Math.pow(1.1, Math.max(0, 3 - yearsSinceRetirement));
-  
-  // Base percentage: Start with 20-25%, increases by progression factor
-  const basePercentage = 0.20;
-  const adjustedPercentage = Math.min(0.40, basePercentage * progressionFactor);
-  
-  // Calculate what annual withdrawal would exhaust RRSP within remaining years
-  // Using simplification: annual amount = balance * (1 + adjustment factor) / remaining years
-  let futureValue = rrspBalance;
-  
-  // Account for investment growth
-  for (let y = 0; y < remainingYears; y++) {
-    futureValue *= (1 + r);
-  }
-
-  // Target: Exhaust with accelerated early withdrawals
-  // More aggressive in early years, taper towards the end
-  const accelerationBonus = 1 + (Math.max(0, 5 - yearsSinceRetirement) * 0.15);
-  const annualWithdrawal = (futureValue / (remainingYears * accelerationBonus));
-
-  return Math.max(0, annualWithdrawal);
+  return Math.max(0, annuityTarget);
 }
 
 export function runSingleProjection(
@@ -832,6 +828,7 @@ export function runSingleProjection(
   const spouseOasAmount = isCouple ? calculateOASBenefit(spouseOasStartAge, spouseOasBase) : 0;
 
   const planEndAge = scenario.current_age + totalYears;
+  const rrspExhaustYearsBeforeEnd = Math.max(1, scenario.rrsp_exhaustion_years_before_end ?? 2);
   const retirementYearIndex = effectiveRetirementAge - scenario.current_age;
 
   const rrspAtRetirement = (() => {
@@ -855,7 +852,8 @@ export function runSingleProjection(
         effectiveRetirementAge,
         planEndAge,
         scenario.expected_return,
-        scenario.inflation_rate
+        scenario.inflation_rate,
+        rrspExhaustYearsBeforeEnd
       );
 
   const initialTfsaBalance = balances.tfsa;
@@ -962,7 +960,9 @@ export function runSingleProjection(
       scenario.life_expectancy,
       scenario.spouse_life_expectancy,
       scenario.retirement_age,
-      scenario.expected_return
+      scenario.expected_return,
+      planEndAge,
+      rrspExhaustYearsBeforeEnd
     );
 
     const yearAllocations = allocations
@@ -983,7 +983,7 @@ export function runSingleProjection(
 
     const pensionIncomeForCredit = cpp + withdrawals.rrsp + dbPensionBase;
     const primaryTaxableIncome = primarySalary + cpp + oas + dbPensionBase + withdrawals.rrsp + withdrawals.cap_gain_primary;
-    const spouseTaxableIncomeBase = spouseSalary + spouseCpp + spouseOas + spouseDbPensionBase + withdrawals.cap_gain_spouse;
+    const spouseTaxableIncomeBase = spouseSalary + spouseCpp + spouseOas + spouseDbPensionBase + withdrawals.rrsp_spouse + withdrawals.cap_gain_spouse;
 
     let federalTax: number;
     let provincialTax: number;
@@ -991,19 +991,36 @@ export function runSingleProjection(
     let totalTax: number;
 
     if (isCouple && age >= 65) {
-      const eligiblePension = cpp + withdrawals.rrsp + dbPensionBase;
-      const spouseTaxableBase = spouseTaxableIncomeBase;
-      const split = calculateOptimalPensionSplit(
-        primaryTaxableIncome, spouseTaxableBase, eligiblePension,
-        scenario.province, year, effectiveInflation
+      const primaryCalc = calculateTotalTax(
+        primaryTaxableIncome,
+        scenario.province,
+        primarySalary,
+        oas,
+        year,
+        effectiveInflation,
+        undefined,
+        age,
+        pensionIncomeForCredit
       );
-      const primaryCppEiOas = calculateTotalTax(primaryTaxableIncome, scenario.province, primarySalary, oas, year, effectiveInflation, undefined, age, pensionIncomeForCredit);
-      cppEiOasTax = primaryCppEiOas.cpp + primaryCppEiOas.ei + primaryCppEiOas.oasClawback;
-      const spousePensionForCredit = spouseCpp + spouseDbPensionBase;
-      const spouseFull = calculateTotalTax(spouseTaxableBase, scenario.province, spouseSalary, spouseOas, year, effectiveInflation, undefined, age, spousePensionForCredit);
-      provincialTax = primaryCppEiOas.provincial + spouseFull.provincial;
-      federalTax = primaryCppEiOas.federal + spouseFull.federal;
-      totalTax = split.combinedTax + cppEiOasTax + spouseFull.cpp + spouseFull.ei + spouseFull.oasClawback;
+      const spousePensionForCredit = spouseCpp + withdrawals.rrsp_spouse + spouseDbPensionBase;
+      const spouseCalc = calculateTotalTax(
+        spouseTaxableIncomeBase,
+        scenario.province,
+        spouseSalary,
+        spouseOas,
+        year,
+        effectiveInflation,
+        undefined,
+        spouseAge,
+        spousePensionForCredit
+      );
+
+      federalTax = primaryCalc.federal + spouseCalc.federal;
+      provincialTax = primaryCalc.provincial + spouseCalc.provincial;
+      cppEiOasTax =
+        primaryCalc.cpp + primaryCalc.ei + primaryCalc.oasClawback +
+        spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback;
+      totalTax = federalTax + provincialTax + cppEiOasTax;
     } else {
       const primaryCalc = calculateTotalTax(primaryTaxableIncome, scenario.province, primarySalary, oas, year, effectiveInflation, undefined, age, pensionIncomeForCredit);
       federalTax = primaryCalc.federal;

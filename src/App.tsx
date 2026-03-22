@@ -148,6 +148,7 @@ function App() {
     expected_return: 6.0,
     monte_carlo_iterations: 1000,
     withdrawal_strategy: 'maximize_spending',
+    rrsp_exhaustion_years_before_end: 2,
     cpp_start_age: 65,
     cpp_amount_65: 15000,
     oas_start_age: 65,

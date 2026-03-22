@@ -268,7 +268,9 @@ function calcOntarioHealthPremium(income: number, factor: number): number {
     const scaledThreshold = tier.threshold * factor;
     const scaledIncomeBase = tier.incomeBase * factor;
     if (income > scaledThreshold) {
-      return (tier.base + (income - scaledIncomeBase) * tier.rate) * factor / factor;
+      const premium = (tier.base + (income - scaledIncomeBase) * tier.rate) * factor / factor;
+      // Guardrail: health premium cannot reduce total provincial tax.
+      return Math.max(0, premium);
     }
   }
   return 0;

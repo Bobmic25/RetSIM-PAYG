@@ -7,7 +7,6 @@ import {
   OneTimeEvent,
   YearlyProjection
 } from '../types/retirement';
-import { computeTaxAudit } from '../lib/taxEngine';
 import { runCppOasOptimization, CppOasOptimizationRow } from '../lib/projectionEngine';
 import { formatCurrency } from '../lib/formatters';
 import { RefreshCw, TrendingDown, Calculator, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
@@ -52,16 +51,10 @@ export default function TaxVerificationPanel({
   const selectedYear = projections.find(p => p.age === selectedAge);
   const yearIndex = selectedYear ? selectedYear.year - 1 : 0;
 
-  const audit = selectedYear
-    ? computeTaxAudit(
-        selectedYear.primary_salary + selectedYear.cpp + selectedYear.oas + selectedYear.rrsp_withdrawal + selectedYear.non_reg_capital_gain_inclusion,
-        scenario.province,
-        selectedYear.primary_salary,
-        selectedYear.oas,
-        yearIndex,
-        scenario.inflation_rate
-      )
-    : null;
+  const taxableIncome = selectedYear
+    ? selectedYear.salary + selectedYear.cpp + selectedYear.oas + selectedYear.rrsp_withdrawal + selectedYear.non_reg_capital_gain_inclusion
+    : 0;
+  const effectiveRate = selectedYear && taxableIncome > 0 ? selectedYear.total_tax / taxableIncome : 0;
 
   const handleRefreshTaxData = async () => {
     setRefreshing(true);
@@ -153,14 +146,14 @@ export default function TaxVerificationPanel({
             </select>
           </div>
 
-          {audit && selectedYear ? (
+          {selectedYear ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                  { label: 'Gross Income', value: formatCurrency(audit.grossIncome), color: 'text-gray-900' },
-                  { label: 'Total Tax', value: formatCurrency(audit.totalTax), color: 'text-red-700' },
-                  { label: 'Effective Rate', value: `${(audit.effectiveRate * 100).toFixed(1)}%`, color: 'text-orange-700' },
-                  { label: 'After-Tax', value: formatCurrency(audit.grossIncome - audit.totalTax + selectedYear.tfsa_withdrawal), color: 'text-green-700' }
+                  { label: 'Gross Income', value: formatCurrency(taxableIncome), color: 'text-gray-900' },
+                  { label: 'Total Tax', value: formatCurrency(selectedYear.total_tax), color: 'text-red-700' },
+                  { label: 'Effective Rate', value: `${(effectiveRate * 100).toFixed(1)}%`, color: 'text-orange-700' },
+                  { label: 'After-Tax', value: formatCurrency(selectedYear.after_tax_income), color: 'text-green-700' }
                 ].map(card => (
                   <div key={card.label} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                     <p className="text-xs text-gray-500">{card.label}</p>
@@ -212,15 +205,9 @@ export default function TaxVerificationPanel({
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Tax Calculation</p>
                   <div className="space-y-1">
                     {[
-                      { label: 'Gross Federal Tax', value: audit.federalGrossTax, indent: false },
-                      { label: `BPA Credit (${formatCurrency(audit.federalBPA)} × ${(audit.appliedData.federalBrackets[0]?.rate * 100 || 14).toFixed(0)}%)`, value: -audit.federalBPACredit, indent: true },
-                      { label: 'Net Federal Tax', value: audit.federalNetTax, bold: true },
-                      { label: 'Gross Provincial Tax', value: audit.provincialGrossTax, indent: false },
-                      { label: `Prov. BPA Credit`, value: -audit.provincialBPACredit, indent: true },
-                      { label: 'Net Provincial Tax', value: audit.provincialNetTax, bold: true },
-                      { label: 'CPP Contributions', value: audit.cppContribution },
-                      { label: 'EI Premiums', value: audit.eiContribution },
-                      { label: 'OAS Clawback', value: audit.oasClawback },
+                      { label: 'Federal Tax (projected)', value: selectedYear.federal_tax },
+                      { label: 'Provincial Tax (projected)', value: selectedYear.provincial_tax },
+                      { label: 'CPP/EI/OAS (projected)', value: selectedYear.cpp_ei_tax },
                     ].map((row, i) => (
                       <div key={i} className={`flex justify-between py-1 ${row.bold ? 'font-semibold' : ''}`}>
                         <span className={`text-xs ${row.indent ? 'pl-4 text-gray-500' : row.bold ? 'text-gray-800' : 'text-gray-600'}`}>
@@ -233,8 +220,11 @@ export default function TaxVerificationPanel({
                     ))}
                     <div className="flex justify-between pt-2 border-t border-gray-200 font-bold">
                       <span className="text-xs text-red-800">Total Tax</span>
-                      <span className="text-xs text-red-800">{formatCurrency(audit.totalTax)}</span>
+                      <span className="text-xs text-red-800">{formatCurrency(selectedYear.total_tax)}</span>
                     </div>
+                    <p className="text-[11px] text-gray-500 pt-2 border-t border-gray-100">
+                      Values in this panel now mirror the year-by-year projection outputs so totals match across tabs.
+                    </p>
                   </div>
                 </div>
               </div>
