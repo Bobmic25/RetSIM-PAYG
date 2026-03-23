@@ -154,11 +154,11 @@ export function getPercentile<T>(sortedArray: T[], percentile: number): T {
   return sortedArray[index];
 }
 
-export function calculateSuccessRate<T extends { total_balance: number }>(
+export function calculateSuccessRate<T extends { total_balance: number; expense_shortfall?: number }>(
   projections: T[][]
 ): number {
   const successful = projections.filter(projection => {
-    return projection.every(year => year.total_balance >= 0);
+    return projection.every(year => year.total_balance >= -0.01 && (year.expense_shortfall ?? 0) <= 0.01);
   });
   return (successful.length / projections.length) * 100;
 }
@@ -203,7 +203,7 @@ export interface FinalBalanceRecord {
   index: number;
 }
 
-export function runMonteCarloMemoryEfficient<T extends { total_balance: number }>(
+export function runMonteCarloMemoryEfficient<T extends { total_balance: number; expense_shortfall?: number }>(
   iterations: number,
   runOne: () => T[],
   onProgress?: (completed: number, total: number) => void
@@ -238,7 +238,7 @@ export function runMonteCarloMemoryEfficient<T extends { total_balance: number }
         const idx50 = indices[Math.floor((indices.length - 1) * 0.5)];
         const idx90 = indices[Math.floor((indices.length - 1) * 0.9)];
 
-        const successful = allProjections.filter(p => p.every(y => y.total_balance >= 0)).length;
+        const successful = allProjections.filter(p => p.every(y => y.total_balance >= -0.01 && (y.expense_shortfall ?? 0) <= 0.01)).length;
         const successRate = (successful / allProjections.length) * 100;
 
         resolve({

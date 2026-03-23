@@ -14,6 +14,14 @@ export interface ReturnPeriod {
   return_rate: number;
 }
 
+export interface HealthcareStep {
+  from_age: number;
+  to_age: number;
+  annual_cost: number;
+  is_insured: boolean;
+  description: string;
+}
+
 export interface Scenario {
   id?: string;
   user_id?: string;
@@ -159,6 +167,7 @@ export interface YearlyProjection {
   healthcare_expenses: number;
   total_expenses: number;
   net_cash_flow: number;
+  expense_shortfall?: number;
   rrsp_contribution: number;
   tfsa_contribution: number;
   fhsa_contribution: number;

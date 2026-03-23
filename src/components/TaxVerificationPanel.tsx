@@ -4,6 +4,7 @@ import {
   IncomeSource,
   SavingsAccount,
   ExpenseLadder,
+  HealthcareStep,
   OneTimeEvent,
   YearlyProjection
 } from '../types/retirement';
@@ -19,6 +20,7 @@ interface TaxVerificationPanelProps {
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
   expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   liveTaxData?: LiveTaxData | null;
   taxDataStatus?: 'loading' | 'live' | 'fallback';
@@ -37,6 +39,7 @@ export default function TaxVerificationPanel({
   incomeSources,
   savingsAccounts,
   expenseLadder,
+  healthcareSteps,
   oneTimeEvents,
   liveTaxData,
   taxDataStatus,
@@ -81,7 +84,7 @@ export default function TaxVerificationPanel({
   const handleRunOptimization = () => {
     setLoadingOpt(true);
     setTimeout(() => {
-      const rows = runCppOasOptimization(scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents);
+      const rows = runCppOasOptimization(scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents);
       setOptimizationRows(rows);
       setLoadingOpt(false);
     }, 0);

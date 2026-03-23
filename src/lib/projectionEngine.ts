@@ -2,6 +2,7 @@
   Scenario,
   AssetAllocation,
   ReturnPeriod,
+  HealthcareStep,
   IncomeSource,
   SavingsAccount,
   ExpenseLadder,
@@ -69,6 +70,17 @@ function getExpensesForAge(age: number, expenseLadder: ExpenseLadder[]): number 
   const ladder = expenseLadder.find(l => age >= l.start_age && age <= l.end_age);
   if (!ladder) return 0;
   return ladder.living_expenses + ladder.travel_expenses + ladder.other_expenses;
+}
+
+function getHealthcareExpensesForAge(
+  age: number,
+  healthcareSteps: HealthcareStep[],
+  yearFromStart: number,
+  healthcareInflationRate: number
+): number {
+  return healthcareSteps
+    .filter(step => !step.is_insured && age >= step.from_age && age <= step.to_age)
+    .reduce((sum, step) => sum + adjustForInflation(step.annual_cost, yearFromStart, healthcareInflationRate), 0);
 }
 
 function getOneTimeEventsForAge(
@@ -859,6 +871,7 @@ export function runSingleProjection(
   incomeSources: IncomeSource[],
   savingsAccounts: SavingsAccount[],
   expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
   oneTimeEvents: OneTimeEvent[],
   returnSequence?: number[],
   overrideCppStartAge?: number,
@@ -1028,13 +1041,14 @@ export function runSingleProjection(
     }
 
     const livingExpenses = adjustForInflation(getExpensesForAge(age, expenseLadder), year, effectiveInflation) * expenseMultiplier;
-    const totalExpensesNeeded = livingExpenses + oneTimeExpenses;
-  const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions;
+    const healthcareExpenses = getHealthcareExpensesForAge(age, healthcareSteps, year, scenario.healthcare_inflation ?? effectiveInflation);
+    const totalExpensesNeeded = livingExpenses + healthcareExpenses + oneTimeExpenses;
+    const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions;
 
     const guaranteedIncome = salary + totalCpp + totalOas + totalDbPension + gisAmount + inheritance;
   const shortfall = Math.max(0, totalCashNeed - guaranteedIncome);
 
-  const baseTaxableIncome = primaryTaxableSalary + cpp + oas + dbPensionBase;
+    const baseTaxableIncome = primaryTaxableSalary + cpp + oas + dbPensionBase;
 
     const preWithdrawalRrsp = balances.rrsp + balances.rrsp_spouse;
     const preWithdrawalTfsa = balances.tfsa;
@@ -1142,8 +1156,9 @@ export function runSingleProjection(
     }
 
     const nonRegWithdrawal = withdrawals.non_reg_primary + withdrawals.non_reg_spouse;
-  const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa;
-  const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
+    const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa;
+    const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
+    const expenseShortfall = Math.max(0, totalExpensesNeeded - afterTaxIncomeBeforeSalaryFunding);
 
     const isNetExpensesOnly = effectiveWithdrawalStrategy === 'net_expenses_only';
     let surplus = afterTaxIncome - totalExpensesNeeded;
@@ -1236,9 +1251,10 @@ export function runSingleProjection(
       after_tax_income: afterTaxIncome,
       living_expenses: livingExpenses,
       one_time_expenses: oneTimeExpenses,
-      healthcare_expenses: 0,
+      healthcare_expenses: healthcareExpenses,
       total_expenses: totalExpensesNeeded,
       net_cash_flow: afterTaxIncome - totalExpensesNeeded,
+      expense_shortfall: expenseShortfall,
       rrsp_contribution: contributions.rrsp + contributions.rrsp_spouse,
       tfsa_contribution: contributions.tfsa,
       fhsa_contribution: contributions.fhsa,
@@ -1276,6 +1292,7 @@ export async function runMonteCarloSimulation(
   incomeSources: IncomeSource[],
   savingsAccounts: SavingsAccount[],
   expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
   oneTimeEvents: OneTimeEvent[],
   onProgress?: (completed: number, total: number) => void,
   allocations?: AssetAllocation[],
@@ -1304,7 +1321,7 @@ export async function runMonteCarloSimulation(
       );
       const inflationSequence = generateStochasticInflationSequence(totalYears, scenario.inflation_rate);
       return runSingleProjection(
-        scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents,
+        scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
         returnSequence, undefined, undefined, allocations, inflationSequence, overrides
       );
     },
@@ -1341,6 +1358,7 @@ export function runCppOasOptimization(
   incomeSources: IncomeSource[],
   savingsAccounts: SavingsAccount[],
   expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
   oneTimeEvents: OneTimeEvent[],
   options: CppOasOptimizationOptions = {}
 ): CppOasOptimizationRow[] {
@@ -1359,7 +1377,7 @@ export function runCppOasOptimization(
 
   const rows = combinations.map(({ cpp, oas }) => {
     const projections = runSingleProjection(
-      scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents,
+      scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
       undefined, cpp, oas
     );
 

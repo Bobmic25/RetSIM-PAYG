@@ -1,15 +1,7 @@
 import { Plus, Trash2, Info } from 'lucide-react';
-import { Scenario } from '../types/retirement';
+import { Scenario, HealthcareStep } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
 import { MAX_AGE, clampAge } from '../lib/ageUtils';
-
-interface HealthcareStep {
-  from_age: number;
-  to_age: number;
-  annual_cost: number;
-  is_insured: boolean;
-  description: string;
-}
 
 interface HealthcareFormProps {
   steps: HealthcareStep[];
@@ -206,5 +198,3 @@ export default function HealthcareForm({ steps, onChange, scenario }: Healthcare
     </div>
   );
 }
-
-export type { HealthcareStep };

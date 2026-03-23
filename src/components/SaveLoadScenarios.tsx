@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Save, FolderOpen, Trash2, Download } from 'lucide-react';
-import { Scenario, IncomeSource, SavingsAccount, ExpenseLadder, OneTimeEvent } from '../types/retirement';
+import { Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { supabase } from '../lib/supabase';
 
 interface SavedScenario {
@@ -11,6 +11,7 @@ interface SavedScenario {
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
   expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
 }
 
@@ -19,12 +20,14 @@ interface SaveLoadScenariosProps {
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
   expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   onLoad: (data: {
     scenario: Scenario;
     incomeSources: IncomeSource[];
     savingsAccounts: SavingsAccount[];
     expenseLadder: ExpenseLadder[];
+    healthcareSteps: HealthcareStep[];
     oneTimeEvents: OneTimeEvent[];
   }) => void;
 }
@@ -34,6 +37,7 @@ export default function SaveLoadScenarios({
   incomeSources,
   savingsAccounts,
   expenseLadder,
+  healthcareSteps,
   oneTimeEvents,
   onLoad
 }: SaveLoadScenariosProps) {
@@ -65,6 +69,7 @@ export default function SaveLoadScenarios({
         incomeSources,
         savingsAccounts,
         expenseLadder,
+        healthcareSteps,
         oneTimeEvents
       };
 
@@ -83,6 +88,7 @@ export default function SaveLoadScenarios({
       incomeSources: saved.incomeSources || [],
       savingsAccounts: saved.savingsAccounts || [],
       expenseLadder: saved.expenseLadder || [],
+      healthcareSteps: saved.healthcareSteps || [],
       oneTimeEvents: saved.oneTimeEvents || []
     });
   };
@@ -99,6 +105,7 @@ export default function SaveLoadScenarios({
       incomeSources,
       savingsAccounts,
       expenseLadder,
+      healthcareSteps,
       oneTimeEvents
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -123,6 +130,7 @@ export default function SaveLoadScenarios({
             incomeSources: parsed.incomeSources || [],
             savingsAccounts: parsed.savingsAccounts || [],
             expenseLadder: parsed.expenseLadder || [],
+            healthcareSteps: parsed.healthcareSteps || [],
             oneTimeEvents: parsed.oneTimeEvents || []
           });
         }

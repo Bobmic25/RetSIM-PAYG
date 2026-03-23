@@ -3,6 +3,7 @@ import type {
   IncomeSource,
   SavingsAccount,
   ExpenseLadder,
+  HealthcareStep,
   OneTimeEvent,
   AssetAllocation,
   MonteCarloResult
@@ -15,6 +16,7 @@ export interface WorkerRequest {
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
   expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   allocations: AssetAllocation[];
   overrides?: ProjectionOverrides;
@@ -37,7 +39,7 @@ export interface WorkerErrorMessage {
 }
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
-  const { scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents, allocations, overrides } = e.data;
+  const { scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents, allocations, overrides } = e.data;
 
   clearTaxCache();
 
@@ -47,6 +49,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       incomeSources,
       savingsAccounts,
       expenseLadder,
+      healthcareSteps,
       oneTimeEvents,
       (completed, total) => {
         const msg: WorkerProgressMessage = { type: 'progress', completed, total };

@@ -11,7 +11,7 @@ import SavingsForm from './components/SavingsForm';
 import AssetAllocationForm from './components/AssetAllocationForm';
 import ReturnsForm from './components/ReturnsForm';
 import ExpenseLadderForm from './components/ExpenseLadderForm';
-import HealthcareForm, { HealthcareStep } from './components/HealthcareForm';
+import HealthcareForm from './components/HealthcareForm';
 import OneTimeEventsForm from './components/OneTimeEventsForm';
 import LongevityPlanner from './components/LongevityPlanner';
 import SaveLoadScenarios from './components/SaveLoadScenarios';
@@ -25,6 +25,7 @@ import {
   YearlyProjection,
   MonteCarloResult,
   AssetAllocation,
+  HealthcareStep,
   Province,
 } from './types/retirement';
 import { runSingleProjection, type ProjectionOverrides } from './lib/projectionEngine';
@@ -252,6 +253,7 @@ function App() {
           incomeSources,
           savingsAccounts,
           expenseLadder,
+          healthcareSteps,
           oneTimeEvents,
           allocations: assetAllocations,
           overrides
@@ -264,6 +266,7 @@ function App() {
         incomeSources,
         savingsAccounts,
         expenseLadder,
+        healthcareSteps,
         oneTimeEvents,
         undefined,
         undefined,
@@ -374,6 +377,7 @@ function App() {
     incomeSources: IncomeSource[];
     savingsAccounts: SavingsAccount[];
     expenseLadder: ExpenseLadder[];
+    healthcareSteps: HealthcareStep[];
     oneTimeEvents: OneTimeEvent[];
   }) => {
     setScenario({
@@ -389,6 +393,7 @@ function App() {
     setIncomeSources(data.incomeSources);
     setSavingsAccounts(data.savingsAccounts);
     setExpenseLadder(data.expenseLadder);
+    setHealthcareSteps(data.healthcareSteps ?? []);
     setOneTimeEvents(data.oneTimeEvents);
     setCurrentStep(0);
     setHighestVisited(RESULTS_STEP);
@@ -463,6 +468,7 @@ function App() {
                 incomeSources={incomeSources}
                 savingsAccounts={savingsAccounts}
                 expenseLadder={expenseLadder}
+                healthcareSteps={healthcareSteps}
                 oneTimeEvents={oneTimeEvents}
                 onLoad={handleLoadScenario}
               />
@@ -502,6 +508,7 @@ function App() {
                   savingsAccounts={savingsAccounts}
                   assetAllocations={assetAllocations}
                   expenseLadder={expenseLadder}
+                  healthcareSteps={healthcareSteps}
                   oneTimeEvents={oneTimeEvents}
                   onSaveComparison={saveCurrentResult}
                   savedResults={savedResults}

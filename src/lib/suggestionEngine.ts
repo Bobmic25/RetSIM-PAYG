@@ -79,14 +79,14 @@ export function generateSuggestions(
   }
 
   // 4. Safety Buffer
-  if (monteCarloResult && monteCarloResult.success_rate < 0.80) {
+  if (monteCarloResult && monteCarloResult.success_rate < 80) {
     const currentRetirementAge = scenario.retirement_age;
     const suggestedRetirementAge = currentRetirementAge + 2;
 
     suggestions.push({
       id: 'safety_buffer_delay',
       title: 'Delay Retirement for Safety',
-      description: `Your Monte Carlo success rate is ${Math.round(monteCarloResult.success_rate * 100)}%, which is below the recommended 80% threshold.`,
+      description: `Your Monte Carlo success rate is ${Math.round(monteCarloResult.success_rate)}%, which is below the recommended 80% threshold.`,
       benefit: `Delaying retirement to age ${suggestedRetirementAge} will significantly improve your plan's resilience to market volatility.`,
       overrides: {
         retirementAge: suggestedRetirementAge
@@ -96,13 +96,13 @@ export function generateSuggestions(
   }
 
   // Alternative: Increase savings if success rate is low and not yet retired
-  if (monteCarloResult && monteCarloResult.success_rate < 0.80 && scenario.current_age < scenario.retirement_age) {
+  if (monteCarloResult && monteCarloResult.success_rate < 80 && scenario.current_age < scenario.retirement_age) {
     const yearsToRetirement = scenario.retirement_age - scenario.current_age;
     if (yearsToRetirement > 5) {
       suggestions.push({
         id: 'safety_buffer_savings',
         title: 'Increase Monthly Savings',
-        description: `Your Monte Carlo success rate is ${Math.round(monteCarloResult.success_rate * 100)}%, below the 80% safety threshold.`,
+        description: `Your Monte Carlo success rate is ${Math.round(monteCarloResult.success_rate)}%, below the 80% safety threshold.`,
         benefit: 'Increasing monthly savings by $500 will build a stronger financial cushion for retirement.',
         overrides: {
           additionalMonthlySavings: 500

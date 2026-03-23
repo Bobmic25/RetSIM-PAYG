@@ -27,7 +27,7 @@ export default function PDFExport({
     const lastYear = projections[projections.length - 1];
     const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
     const firstRetirementYear = projections.find(p => p.total_withdrawals > 0 || p.cpp > 0);
-    const successRate = monteCarloResult ? `${(monteCarloResult.success_rate * 100).toFixed(1)}%` : 'N/A';
+    const successRate = monteCarloResult ? `${monteCarloResult.success_rate.toFixed(1)}%` : 'N/A';
     const pv = (amount: number, yearIndex: number) => presentValue(amount, yearIndex, inflationRate);
     const lastNetWorthPV = pv(lastYear.total_balance, lastYear.year - 1);
     const totalTaxPV = projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0);

@@ -9,7 +9,7 @@ import TaxInfoModal from './TaxInfoModal';
 import TaxVerificationPanel from './TaxVerificationPanel';
 import PortfolioBreakdownModal, { PortfolioSlice } from './PortfolioBreakdownModal';
 import AISuggestionsPanel from './AISuggestionsPanel';
-import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, OneTimeEvent, AssetAllocation } from '../types/retirement';
+import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
 import { computeTaxAudit, calcTieredCapitalGainInclusion, OAS_CLAWBACK_THRESHOLD_2026, OAS_CLAWBACK_RATE, FEDERAL_BRACKETS_2026 } from '../lib/taxEngine';
@@ -52,6 +52,7 @@ interface ResultsDashboardProps {
   savingsAccounts: SavingsAccount[];
   assetAllocations: AssetAllocation[];
   expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   onSaveComparison: () => void;
   savedResults: SavedResult[];
@@ -120,6 +121,7 @@ export default function ResultsDashboard({
   savingsAccounts,
   assetAllocations,
   expenseLadder,
+  healthcareSteps,
   oneTimeEvents,
   onSaveComparison,
   savedResults,
@@ -263,6 +265,7 @@ export default function ResultsDashboard({
             incomeSources,
             savingsAccounts,
             expenseLadder,
+          healthcareSteps,
             oneTimeEvents,
             undefined,
             undefined,
@@ -306,6 +309,7 @@ export default function ResultsDashboard({
     savingsAccounts,
     assetAllocations,
     expenseLadder,
+    healthcareSteps,
     oneTimeEvents,
     showTodayDollars,
     onWithdrawalStrategyChange,
@@ -610,6 +614,7 @@ export default function ResultsDashboard({
               incomeSources={incomeSources}
               savingsAccounts={savingsAccounts}
               expenseLadder={expenseLadder}
+              healthcareSteps={healthcareSteps}
               oneTimeEvents={oneTimeEvents}
               showTodayDollars={showTodayDollars}
               inflationRate={inflationRate}
@@ -623,6 +628,7 @@ export default function ResultsDashboard({
               incomeSources={incomeSources}
               savingsAccounts={savingsAccounts}
               expenseLadder={expenseLadder}
+              healthcareSteps={healthcareSteps}
               oneTimeEvents={oneTimeEvents}
               liveTaxData={liveTaxData}
               taxDataStatus={taxDataStatus}

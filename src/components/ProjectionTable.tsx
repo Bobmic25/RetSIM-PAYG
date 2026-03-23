@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp, Info, X } from 'lucide-react';
-import { YearlyProjection, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, OneTimeEvent } from '../types/retirement';
+import { YearlyProjection, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { runCppOasOptimization, CppOasOptimizationRow } from '../lib/projectionEngine';
 import { presentValue, GIS_MAX_SINGLE_ANNUAL_2026, GIS_MAX_COUPLE_ANNUAL_2026, GIS_CLAWBACK_RATE } from '../lib/benefitsEngine';
@@ -17,6 +17,7 @@ interface ProjectionTableProps {
   incomeSources: IncomeSource[];
   savingsAccounts: SavingsAccount[];
   expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   showTodayDollars?: boolean;
   inflationRate?: number;
@@ -202,6 +203,7 @@ export default function ProjectionTable({
         incomeSources,
         savingsAccounts,
         expenseLadder,
+        healthcareSteps,
         oneTimeEvents,
         {
           showTodayDollars,
