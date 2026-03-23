@@ -6,6 +6,13 @@ export type IncomeSourceType = 'salary' | 'pension' | 'rental' | 'other';
 export type EventType = 'inheritance' | 'expense';
 export type Person = 'primary' | 'spouse';
 export type AssetClass = 'stocks' | 'bonds' | 'cash' | 'real_estate' | 'other';
+export type RiskProfile = 'conservative' | 'balanced' | 'aggressive';
+
+export interface ReturnPeriod {
+  from_year: number;
+  to_year: number;
+  return_rate: number;
+}
 
 export interface Scenario {
   id?: string;
@@ -20,7 +27,9 @@ export interface Scenario {
   inflation_rate: number;
   return_type: ReturnType;
   expected_return: number;
+  management_fee_pct?: number;
   return_std_dev?: number;
+  return_periods?: ReturnPeriod[];
   monte_carlo_iterations: number;
   withdrawal_strategy: WithdrawalStrategy;
   rrsp_exhaustion_years_before_end?: number;
@@ -50,6 +59,7 @@ export interface Scenario {
   glide_target_bonds?: number;
   cad_equity_weight?: number;
   us_equity_weight?: number;
+  int_equity_weight?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -59,6 +69,7 @@ export interface AssetAllocation {
   scenario_id?: string;
   account_type: AccountType;
   person?: Person;
+  risk_profile?: RiskProfile;
   stocks: number;
   bonds: number;
   cash: number;
@@ -66,6 +77,7 @@ export interface AssetAllocation {
   other: number;
   us_equity_weight: number;
   cad_equity_weight: number;
+  int_equity_weight: number;
 }
 
 export interface HealthcareCost {

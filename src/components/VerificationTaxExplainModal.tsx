@@ -263,7 +263,7 @@ export default function VerificationTaxExplainModal({
               <DetailRow label="Estimated Capital Gain Math" value={`${formatCurrency(selectedYear.non_reg_withdrawal)} × ${formatPercent(growthRatio, 2)} = ${formatCurrency(estimatedCapitalGain)}`} />
               <DetailRow label="Taxable Inclusion" value={`${formatCurrency(baseCapitalGainInclusion)} at 50% base inclusion; engine used ${formatCurrency(actualCapitalGainInclusion)}`} />
               <DetailRow label="Account Growth" value={`${formatCurrency(currentYearGrowth)} this year, ${formatCurrency(cumulativeGrowth)} cumulative to this age`} />
-              <DetailRow label="Tax Drag Note" value={`The return logic applies a ${(FOREIGN_WITHHOLDING_DRAG * 100).toFixed(2)}% drag on the US-equity sleeve; blended drag depends on each account's stock and US equity mix.`} />
+              <DetailRow label="Tax Drag Note" value={`The return logic applies a ${(FOREIGN_WITHHOLDING_DRAG * 100).toFixed(2)}% drag on foreign equity sleeves; blended drag depends on each account's stock mix and the combined US plus International equity weights.`} />
               <DetailRow label="Government Payment" value={`${formatCurrency(selectedYear.total_tax)} total tax including federal, provincial, surtax/health premium where applicable, CPP/EI, and OAS recovery tax`} />
             </div>
           </section>

@@ -3,17 +3,9 @@ import { Plus, Trash2, HelpCircle, X } from 'lucide-react';
 import { Scenario } from '../types/retirement';
 import { MONTE_CARLO_MAX_ITERATIONS, MONTE_CARLO_DEFAULT_ITERATIONS } from '../lib/monteCarloEngine';
 
-interface ReturnPeriod {
-  from_year: number;
-  to_year: number;
-  return_rate: number;
-}
-
 interface ReturnsFormProps {
   scenario: Scenario;
   onChange: (updates: Partial<Scenario>) => void;
-  returnPeriods: ReturnPeriod[];
-  onReturnPeriodsChange: (periods: ReturnPeriod[]) => void;
 }
 
 function MonteCarloInfoModal({ onClose }: { onClose: () => void }) {
@@ -40,9 +32,9 @@ function MonteCarloInfoModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="space-y-2">
-            <h3 className="font-semibold text-gray-900">Canadian & US Markets Move Together</h3>
+            <h3 className="font-semibold text-gray-900">Canada, US, and International Markets Move Together</h3>
             <p className="text-sm text-gray-600 leading-relaxed">
-              The two equity markets are not simulated independently. A <strong>Cholesky decomposition</strong> is used to correlate Canadian and US returns with a coefficient of roughly <strong>0.75</strong> — close to their long-run historical relationship. In bad years, both markets tend to fall together; in good years, both tend to rise. Your geographic allocation slider adjusts the blend of these two correlated streams.
+              The equity markets are not simulated independently. A <strong>Cholesky decomposition</strong> is used to correlate Canadian, US, and International equity returns so market shocks can spill across regions. In bad years, those markets often fall together; in good years, they often rise together. Your geographic allocation controls adjust the blend of those correlated streams.
             </p>
           </div>
 
@@ -90,25 +82,64 @@ function MonteCarloInfoModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export default function ReturnsForm({ scenario, onChange, returnPeriods, onReturnPeriodsChange }: ReturnsFormProps) {
+export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
   const currentYear = new Date().getFullYear();
   const [showMonteCarloInfo, setShowMonteCarloInfo] = useState(false);
+  const returnPeriods = scenario.return_periods ?? [];
+  const netExpectedReturn = scenario.expected_return - (scenario.management_fee_pct ?? 0);
+
+  const rebalanceGeoWeights = (
+    current: { cad: number; us: number; intl: number },
+    field: 'cad' | 'us' | 'intl',
+    nextValue: number,
+  ) => {
+    const clamped = Math.max(0, Math.min(100, nextValue));
+    const remaining = Math.max(0, 100 - clamped);
+    const otherKeys = (['cad', 'us', 'intl'] as const).filter(key => key !== field);
+    const otherTotal = otherKeys.reduce((sum, key) => sum + current[key], 0);
+    const next = { ...current, [field]: clamped };
+
+    if (otherTotal <= 0) {
+      const equal = remaining / otherKeys.length;
+      otherKeys.forEach(key => {
+        next[key] = equal;
+      });
+    } else {
+      otherKeys.forEach((key, index) => {
+        if (index === otherKeys.length - 1) return;
+        next[key] = Number(((current[key] / otherTotal) * remaining).toFixed(2));
+      });
+      const assigned = otherKeys.slice(0, -1).reduce((sum, key) => sum + next[key], 0);
+      next[otherKeys[otherKeys.length - 1]] = Number((remaining - assigned).toFixed(2));
+    }
+
+    const total = next.cad + next.us + next.intl;
+    if (total !== 100) {
+      next.intl = Number((next.intl + (100 - total)).toFixed(2));
+    }
+
+    onChange({
+      cad_equity_weight: next.cad,
+      us_equity_weight: next.us,
+      int_equity_weight: next.intl,
+    });
+  };
 
   const addPeriod = () => {
     const last = returnPeriods[returnPeriods.length - 1];
     const newFrom = last ? last.to_year + 1 : currentYear;
     const newTo = newFrom + 4;
-    onReturnPeriodsChange([...returnPeriods, { from_year: newFrom, to_year: newTo, return_rate: scenario.expected_return }]);
+    onChange({ return_periods: [...returnPeriods, { from_year: newFrom, to_year: newTo, return_rate: scenario.expected_return }] });
   };
 
-  const updatePeriod = (index: number, updates: Partial<ReturnPeriod>) => {
+  const updatePeriod = (index: number, updates: Partial<(typeof returnPeriods)[number]>) => {
     const updated = [...returnPeriods];
     updated[index] = { ...updated[index], ...updates };
-    onReturnPeriodsChange(updated);
+    onChange({ return_periods: updated });
   };
 
   const removePeriod = (index: number) => {
-    onReturnPeriodsChange(returnPeriods.filter((_, i) => i !== index));
+    onChange({ return_periods: returnPeriods.filter((_, i) => i !== index) });
   };
 
   const ageForYear = (year: number) => {
@@ -150,14 +181,32 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {!(scenario.return_type === 'linear' && returnPeriods.length > 0) && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {scenario.return_type === 'linear' ? 'Default Annual Return (%)' : 'Expected Annual Return (%)'}
+            </label>
+            <input type="number" step="0.5" value={scenario.expected_return} min={-10} max={30}
+              onChange={e => onChange({ expected_return: parseFloat(e.target.value) || 0 })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            <p className="text-xs text-gray-500 mt-1">Historical long-term average: 6–8%</p>
+          </div>
+        )}
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            {scenario.return_type === 'linear' ? 'Default Annual Return (%)' : 'Expected Annual Return (%)'}
-          </label>
-          <input type="number" step="0.5" value={scenario.expected_return} min={-10} max={30}
-            onChange={e => onChange({ expected_return: parseFloat(e.target.value) || 0 })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-          <p className="text-xs text-gray-500 mt-1">Historical long-term average: 6–8%</p>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Portfolio Management Cost (%)</label>
+          <input
+            type="number"
+            step="0.1"
+            min={0}
+            max={10}
+            value={scenario.management_fee_pct ?? 0}
+            onChange={e => onChange({ management_fee_pct: Math.max(0, Math.min(10, parseFloat(e.target.value) || 0)) })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Applied against gross return so projections use a net return of {netExpectedReturn.toFixed(1)}% before taxes.
+          </p>
         </div>
 
         {scenario.return_type === 'monte_carlo' && (
@@ -201,75 +250,68 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
           {scenario.withdrawal_strategy === 'rrsp_meltdown' && (
             <p className="text-xs text-gray-500 mt-1">Prioritizes smoother early RRSP withdrawal and targets full RRSP exhaustion before the end of plan. Uses Non-Registered as secondary and TFSA as last resort.</p>
           )}
+        </div>
 
-          <div className="mt-3">
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Target RRSP Exhaustion (Years Before Plan End)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={25}
-              step={1}
-              value={scenario.rrsp_exhaustion_years_before_end ?? 2}
-              onChange={e => onChange({ rrsp_exhaustion_years_before_end: Math.max(1, Math.min(25, parseInt(e.target.value, 10) || 2)) })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Example: `2` means RRSP is targeted to be fully exhausted by two years before the plan end age.
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Target RRSP Exhaustion (Years Before Plan End)
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={25}
+            step={1}
+            value={scenario.rrsp_exhaustion_years_before_end ?? 2}
+            onChange={e => onChange({ rrsp_exhaustion_years_before_end: Math.max(1, Math.min(25, parseInt(e.target.value, 10) || 2)) })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Example: `2` means RRSP is targeted to be fully exhausted by two years before the plan end age.
+          </p>
+          {scenario.withdrawal_strategy === 'net_expenses_only' && (
+            <p className="text-xs text-amber-700 mt-1">
+              Note: Net Expenses Only still follows this RRSP exhaustion target. Any forced excess withdrawal is re-invested to non-registered savings.
             </p>
-            {scenario.withdrawal_strategy === 'net_expenses_only' && (
-              <p className="text-xs text-amber-700 mt-1">
-                Note: Net Expenses Only still follows this RRSP exhaustion target. Any forced excess withdrawal is re-invested to non-registered savings.
-              </p>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
       <div className="border border-gray-200 rounded-lg p-4 space-y-4">
         <div>
           <h4 className="font-semibold text-gray-900 mb-1">Geographic Equity Allocation</h4>
-          <p className="text-sm text-gray-500">Adjust the split of equity exposure between Canadian and US markets. The two weights always sum to 100%.</p>
+          <p className="text-sm text-gray-500">Fallback geography used for Monte Carlo when you have not customized allocations in the Assets tab. Canada, US, and International always sum to 100%.</p>
         </div>
         <div className="space-y-5">
           {(() => {
-            const cadWeight = scenario.cad_equity_weight ?? 50;
-            const usWeight = scenario.us_equity_weight ?? 50;
+            const cadWeight = scenario.cad_equity_weight ?? 60;
+            const usWeight = scenario.us_equity_weight ?? 40;
+            const intlWeight = scenario.int_equity_weight ?? Math.max(0, 100 - cadWeight - usWeight);
+            const currentWeights = { cad: cadWeight, us: usWeight, intl: intlWeight };
             return (
               <>
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-sm font-medium text-gray-700">Canadian Market Weight</label>
-                    <span className="text-sm font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded">{cadWeight}%</span>
+                {([
+                  { key: 'cad', label: 'Canada (TSX)', badgeClass: 'text-red-700 bg-red-50', sliderClass: 'accent-red-600', value: cadWeight },
+                  { key: 'us', label: 'US (S&P 500)', badgeClass: 'text-blue-700 bg-blue-50', sliderClass: 'accent-blue-600', value: usWeight },
+                  { key: 'intl', label: 'International (MSCI EAFE)', badgeClass: 'text-violet-700 bg-violet-50', sliderClass: 'accent-violet-600', value: intlWeight },
+                ] as const).map(item => (
+                  <div key={item.key}>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-sm font-medium text-gray-700">{item.label}</label>
+                      <span className={`text-sm font-bold px-2 py-0.5 rounded ${item.badgeClass}`}>{Math.round(item.value)}%</span>
+                    </div>
+                    <input
+                      type="range" min={0} max={100} value={Math.round(item.value)}
+                      onChange={e => rebalanceGeoWeights(currentWeights, item.key, parseInt(e.target.value) || 0)}
+                      className={`w-full ${item.sliderClass}`}
+                    />
                   </div>
-                  <input
-                    type="range" min={0} max={100} value={cadWeight}
-                    onChange={e => {
-                      const v = parseInt(e.target.value);
-                      onChange({ cad_equity_weight: v, us_equity_weight: 100 - v });
-                    }}
-                    className="w-full accent-red-600"
-                  />
-                </div>
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-sm font-medium text-gray-700">US Market Weight</label>
-                    <span className="text-sm font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{usWeight}%</span>
-                  </div>
-                  <input
-                    type="range" min={0} max={100} value={usWeight}
-                    onChange={e => {
-                      const v = parseInt(e.target.value);
-                      onChange({ us_equity_weight: v, cad_equity_weight: 100 - v });
-                    }}
-                    className="w-full accent-blue-600"
-                  />
-                </div>
+                ))}
                 <div className="flex gap-2 h-2 rounded-full overflow-hidden">
                   <div className="bg-red-500 transition-all duration-200" style={{ width: `${cadWeight}%` }} />
                   <div className="bg-blue-500 transition-all duration-200" style={{ width: `${usWeight}%` }} />
+                  <div className="bg-violet-500 transition-all duration-200" style={{ width: `${intlWeight}%` }} />
                 </div>
+                <p className="text-xs text-gray-500">The Assets tab overrides this fallback on a per-account basis.</p>
               </>
             );
           })()}
@@ -281,7 +323,7 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
           <div className="flex justify-between items-center">
             <div>
               <h4 className="font-semibold text-gray-900">Market Behaviour Steps</h4>
-              <p className="text-sm text-gray-600">Override returns for specific year ranges. Years without a step use the default return above.</p>
+              <p className="text-sm text-gray-600">Define year-by-year return steps. When periods exist, they override the default annual return and management cost is deducted from each period before calculation.</p>
             </div>
             <button type="button" onClick={addPeriod}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
@@ -335,10 +377,13 @@ export default function ReturnsForm({ scenario, onChange, returnPeriods, onRetur
           {returnPeriods.length > 0 && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h5 className="font-medium text-blue-900 mb-2">Return Schedule Summary</h5>
+              <p className="text-sm text-blue-800 mb-3">
+                Period values below are gross returns. The simulation subtracts the portfolio management cost and uses the resulting net schedule for each year.
+              </p>
               <div className="flex flex-wrap gap-2">
                 {returnPeriods.map((p, i) => (
                   <span key={i} className={`px-3 py-1 rounded-full text-sm font-medium ${p.return_rate < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                    {p.from_year}–{p.to_year}: {p.return_rate > 0 ? '+' : ''}{p.return_rate}%
+                    {p.from_year}-{p.to_year}: gross {p.return_rate > 0 ? '+' : ''}{p.return_rate}% / net {(p.return_rate - (scenario.management_fee_pct ?? 0)) > 0 ? '+' : ''}{(p.return_rate - (scenario.management_fee_pct ?? 0)).toFixed(1)}%
                   </span>
                 ))}
               </div>

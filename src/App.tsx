@@ -33,12 +33,6 @@ import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataServic
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
 
-interface ReturnPeriod {
-  from_year: number;
-  to_year: number;
-  return_rate: number;
-}
-
 interface SavedResult {
   name: string;
   projections: YearlyProjection[];
@@ -147,12 +141,17 @@ function App() {
     inflation_rate: 2.5,
     return_type: 'linear',
     expected_return: 6.0,
+    management_fee_pct: 0,
+    return_periods: [],
     monte_carlo_iterations: 1000,
     withdrawal_strategy: 'maximize_spending',
     rrsp_exhaustion_years_before_end: 2,
     cpp_start_age: 65,
     cpp_amount_65: 15000,
     oas_start_age: 65,
+    cad_equity_weight: 60,
+    us_equity_weight: 40,
+    int_equity_weight: 0,
     life_expectancy: 90,
     healthcare_inflation: 3.5
   });
@@ -160,7 +159,6 @@ function App() {
   const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
   const [savingsAccounts, setSavingsAccounts] = useState<SavingsAccount[]>([]);
   const [assetAllocations, setAssetAllocations] = useState<AssetAllocation[]>([]);
-  const [returnPeriods, setReturnPeriods] = useState<ReturnPeriod[]>([]);
   const [expenseLadder, setExpenseLadder] = useState<ExpenseLadder[]>([]);
   const [healthcareSteps, setHealthcareSteps] = useState<HealthcareStep[]>([]);
   const [oneTimeEvents, setOneTimeEvents] = useState<OneTimeEvent[]>([]);
@@ -381,7 +379,12 @@ function App() {
     setScenario({
       ...data.scenario,
       return_type: data.scenario.return_type ?? 'linear',
-      rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2
+      management_fee_pct: data.scenario.management_fee_pct ?? 0,
+      return_periods: data.scenario.return_periods ?? [],
+      rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2,
+      cad_equity_weight: data.scenario.cad_equity_weight ?? 60,
+      us_equity_weight: data.scenario.us_equity_weight ?? 40,
+      int_equity_weight: data.scenario.int_equity_weight ?? Math.max(0, 100 - (data.scenario.cad_equity_weight ?? 60) - (data.scenario.us_equity_weight ?? 40))
     });
     setIncomeSources(data.incomeSources);
     setSavingsAccounts(data.savingsAccounts);
@@ -420,14 +423,13 @@ function App() {
                 allocations={assetAllocations}
                 onChange={setAssetAllocations}
                 savingsAccounts={savingsAccounts}
+                scenario={scenario}
               />
             )}
             {currentStep === 4 && (
               <ReturnsForm
                 scenario={scenario}
                 onChange={updateScenario}
-                returnPeriods={returnPeriods}
-                onReturnPeriodsChange={setReturnPeriods}
               />
             )}
             {currentStep === 5 && (

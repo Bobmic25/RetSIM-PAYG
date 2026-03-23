@@ -1,5 +1,8 @@
 const CORRELATION_SP500_TSX = 0.75;
+const CORRELATION_SP500_EAFE = 0.78;
+const CORRELATION_TSX_EAFE = 0.68;
 const USD_CAD_VOLATILITY = 0.07;
+const INTL_CAD_VOLATILITY = 0.06;
 const STUDENT_T_DEGREES_OF_FREEDOM = 5;
 
 function studentTSample(df: number): number {
@@ -36,31 +39,56 @@ export interface GeographicReturnParams {
   stdDev: number;
   usWeight: number;
   cadWeight: number;
+  intWeight: number;
+}
+
+function choleskyThreeFactorSamples(): [number, number, number] {
+  const z1 = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
+  const z2 = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
+  const z3 = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
+
+  const l11 = 1;
+  const l21 = CORRELATION_SP500_TSX;
+  const l22 = Math.sqrt(1 - l21 * l21);
+  const l31 = CORRELATION_SP500_EAFE;
+  const l32 = (CORRELATION_TSX_EAFE - l31 * l21) / l22;
+  const l33 = Math.sqrt(Math.max(1e-9, 1 - l31 * l31 - l32 * l32));
+
+  const x1 = l11 * z1;
+  const x2 = l21 * z1 + l22 * z2;
+  const x3 = l31 * z1 + l32 * z2 + l33 * z3;
+  return [x1, x2, x3];
 }
 
 export function generateCorrelatedReturnSequence(
   years: number,
   params: GeographicReturnParams
 ): number[] {
-  const { meanReturn, stdDev, usWeight, cadWeight } = params;
+  const { meanReturn, stdDev, usWeight, cadWeight, intWeight } = params;
   const sp500Mean = meanReturn;
   const sp500StdDev = stdDev;
   const tsxMean = meanReturn * 0.9;
   const tsxStdDev = stdDev * 1.05;
-  const nonEquityWeight = Math.max(0, 1 - usWeight - cadWeight);
+  const eafeMean = meanReturn * 0.95;
+  const eafeStdDev = stdDev * 1.02;
+  const nonEquityWeight = Math.max(0, 1 - usWeight - cadWeight - intWeight);
   const returns: number[] = [];
 
   for (let i = 0; i < years; i++) {
-    const [z_us, z_cad] = choleskyCorrelatedSamples(CORRELATION_SP500_TSX);
+    const [z_us, z_cad, z_int] = choleskyThreeFactorSamples();
     const sp500Return = sp500Mean + sp500StdDev * z_us;
     const currencyShock = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
     const currencyEffect = USD_CAD_VOLATILITY * currencyShock;
     const usdReturnInCAD = sp500Return + currencyEffect;
     const tsxReturn = tsxMean + tsxStdDev * z_cad;
+    const intlCurrencyShock = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
+    const intlCurrencyEffect = INTL_CAD_VOLATILITY * intlCurrencyShock;
+    const eafeReturn = eafeMean + eafeStdDev * z_int + intlCurrencyEffect;
     const nonEquityReturn = meanReturn * 0.4 + (stdDev * 0.2) * studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
     const portfolioReturn =
       usWeight * usdReturnInCAD +
       cadWeight * tsxReturn +
+      intWeight * eafeReturn +
       nonEquityWeight * nonEquityReturn;
     returns.push(portfolioReturn);
   }
@@ -73,10 +101,17 @@ export function generateReturnSequence(
   meanReturn: number,
   stdDev: number,
   usWeight?: number,
-  cadWeight?: number
+  cadWeight?: number,
+  intWeight?: number
 ): number[] {
   if (usWeight !== undefined && cadWeight !== undefined && (usWeight + cadWeight) > 0) {
-    return generateCorrelatedReturnSequence(years, { meanReturn, stdDev, usWeight, cadWeight });
+    return generateCorrelatedReturnSequence(years, {
+      meanReturn,
+      stdDev,
+      usWeight,
+      cadWeight,
+      intWeight: intWeight ?? Math.max(0, 1 - usWeight - cadWeight),
+    });
   }
 
   const returns: number[] = [];

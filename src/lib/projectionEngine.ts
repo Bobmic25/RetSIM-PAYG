@@ -1,6 +1,7 @@
 ﻿import {
   Scenario,
   AssetAllocation,
+  ReturnPeriod,
   IncomeSource,
   SavingsAccount,
   ExpenseLadder,
@@ -171,7 +172,7 @@ const FOREIGN_WITHHOLDING_DIVIDEND_YIELD = 0.02;
 const FOREIGN_WITHHOLDING_RATE = 0.15;
 const FOREIGN_WITHHOLDING_DRAG = FOREIGN_WITHHOLDING_DIVIDEND_YIELD * FOREIGN_WITHHOLDING_RATE;
 
-function getAccountUsEquityWeight(accountType: string, allocations?: AssetAllocation[], person?: 'primary' | 'spouse'): number {
+function getAccountForeignEquityWeight(accountType: string, allocations?: AssetAllocation[], person?: 'primary' | 'spouse'): number {
   if (!allocations || allocations.length === 0) return 0.6;
   const alloc = allocations.find(a => a.account_type === accountType && (person == null || (a.person ?? 'primary') === person))
     ?? allocations.find(a => a.account_type === accountType && a.person == null)
@@ -179,7 +180,8 @@ function getAccountUsEquityWeight(accountType: string, allocations?: AssetAlloca
   if (!alloc) return 0.6;
   const stocksFraction = alloc.stocks / 100;
   const usWeightFraction = (alloc.us_equity_weight ?? 60) / 100;
-  return stocksFraction * usWeightFraction;
+  const intWeightFraction = (alloc.int_equity_weight ?? 0) / 100;
+  return stocksFraction * (usWeightFraction + intWeightFraction);
 }
 
 function applyReturns(balances: AccountBalances, returnRate: number, allocations?: AssetAllocation[]): void {
@@ -188,17 +190,17 @@ function applyReturns(balances: AccountBalances, returnRate: number, allocations
   balances.rrsp_spouse *= rrspFactor;
   balances.fhsa *= rrspFactor;
 
-  const tfsaUsWeight = getAccountUsEquityWeight('tfsa', allocations);
-  const tfsaDrag = tfsaUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+  const tfsaForeignWeight = getAccountForeignEquityWeight('tfsa', allocations);
+  const tfsaDrag = tfsaForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
   balances.tfsa *= (1 + (returnRate - tfsaDrag) / 100);
 
-  const nonRegPrimaryUsWeight = getAccountUsEquityWeight('non_reg', allocations, 'primary');
-  const nonRegPrimaryDrag = nonRegPrimaryUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+  const nonRegPrimaryForeignWeight = getAccountForeignEquityWeight('non_reg', allocations, 'primary');
+  const nonRegPrimaryDrag = nonRegPrimaryForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
   const nonRegPrimaryGrowthFactor = 1 + (returnRate - nonRegPrimaryDrag) / 100;
   balances.non_reg_primary *= nonRegPrimaryGrowthFactor;
 
-  const nonRegSpouseUsWeight = getAccountUsEquityWeight('non_reg', allocations, 'spouse');
-  const nonRegSpouseDrag = nonRegSpouseUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+  const nonRegSpouseForeignWeight = getAccountForeignEquityWeight('non_reg', allocations, 'spouse');
+  const nonRegSpouseDrag = nonRegSpouseForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
   const nonRegSpouseGrowthFactor = 1 + (returnRate - nonRegSpouseDrag) / 100;
   balances.non_reg_spouse *= nonRegSpouseGrowthFactor;
 }
@@ -698,20 +700,68 @@ function getGlidePathAllocations(
   });
 }
 
-function getPortfolioGeoWeights(allocations: AssetAllocation[]): { usWeight: number; cadWeight: number } {
-  if (!allocations || allocations.length === 0) return { usWeight: 0.5, cadWeight: 0.5 };
+function getPortfolioGeoWeights(allocations: AssetAllocation[]): { usWeight: number; cadWeight: number; intWeight: number } {
+  if (!allocations || allocations.length === 0) return { usWeight: 0.4, cadWeight: 0.6, intWeight: 0 };
   let totalStocks = 0;
   let weightedUs = 0;
   let weightedCad = 0;
+  let weightedInt = 0;
   for (const alloc of allocations) {
     totalStocks += alloc.stocks;
     const usW = alloc.us_equity_weight ?? 60;
     const cadW = alloc.cad_equity_weight ?? 40;
+    const intW = alloc.int_equity_weight ?? 0;
     weightedUs += alloc.stocks * (usW / 100);
     weightedCad += alloc.stocks * (cadW / 100);
+    weightedInt += alloc.stocks * (intW / 100);
   }
-  if (totalStocks <= 0) return { usWeight: 0.5, cadWeight: 0.5 };
-  return { usWeight: weightedUs / totalStocks, cadWeight: weightedCad / totalStocks };
+  if (totalStocks <= 0) return { usWeight: 0.4, cadWeight: 0.6, intWeight: 0 };
+  return {
+    usWeight: weightedUs / totalStocks,
+    cadWeight: weightedCad / totalStocks,
+    intWeight: weightedInt / totalStocks,
+  };
+}
+
+function getNetExpectedReturn(scenario: Scenario): number {
+  return scenario.expected_return - (scenario.management_fee_pct ?? 0);
+}
+
+function getNetReturnFromGross(grossReturn: number, scenario: Scenario): number {
+  return grossReturn - (scenario.management_fee_pct ?? 0);
+}
+
+function getAverageReturn(returns: number[]): number {
+  if (returns.length === 0) return 0;
+  return returns.reduce((sum, value) => sum + value, 0) / returns.length;
+}
+
+export function buildReturnSequenceFromPeriods(
+  totalYears: number,
+  periods: ReturnPeriod[],
+  scenario: Scenario,
+  startYear: number = new Date().getFullYear()
+): number[] {
+  if (totalYears <= 0 || periods.length === 0) {
+    return [];
+  }
+
+  const sortedPeriods = [...periods].sort((left, right) => left.from_year - right.from_year);
+
+  return Array.from({ length: totalYears }, (_, yearIndex) => {
+    const calendarYear = startYear + yearIndex;
+    const matchingPeriod = sortedPeriods.find(period => calendarYear >= period.from_year && calendarYear <= period.to_year);
+    if (matchingPeriod) {
+      return getNetReturnFromGross(matchingPeriod.return_rate, scenario);
+    }
+
+    const previousPeriod = [...sortedPeriods].reverse().find(period => calendarYear > period.to_year);
+    if (previousPeriod) {
+      return getNetReturnFromGross(previousPeriod.return_rate, scenario);
+    }
+
+    return getNetReturnFromGross(sortedPeriods[0].return_rate, scenario);
+  });
 }
 
 const TFSA_ANNUAL_LIMIT_2026 = 7000;
@@ -828,6 +878,11 @@ export function runSingleProjection(
   const effectiveWithdrawalStrategy = overrides?.withdrawalStrategy ?? scenario.withdrawal_strategy;
 
   const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
+  const netExpectedReturn = getNetExpectedReturn(scenario);
+  const derivedReturnSequence = (!returnSequence && scenario.return_type === 'linear' && (scenario.return_periods?.length ?? 0) > 0)
+    ? buildReturnSequenceFromPeriods(totalYears, scenario.return_periods ?? [], scenario)
+    : undefined;
+  const effectiveReturnSequence = returnSequence ?? derivedReturnSequence;
 
   const balances: AccountBalances = {
     rrsp: savingsAccounts.filter(a => a.account_type === 'rrsp' && a.person === 'primary').reduce((s, a) => s + a.current_balance, 0),
@@ -859,10 +914,10 @@ export function runSingleProjection(
   const retirementYearIndex = effectiveRetirementAge - scenario.current_age;
 
   const rrspAtRetirement = (() => {
-    const r = scenario.expected_return / 100;
     let bal = balances.rrsp + balances.rrsp_spouse;
     for (let y = 0; y < retirementYearIndex; y++) {
-      bal *= (1 + r);
+      const annualReturn = (effectiveReturnSequence?.[y] ?? netExpectedReturn) / 100;
+      bal *= (1 + annualReturn);
       const age = scenario.current_age + y;
       const contribThisYear = savingsAccounts
         .filter(a => a.account_type === 'rrsp' && age <= a.contribution_end_age)
@@ -872,13 +927,17 @@ export function runSingleProjection(
     return Math.max(0, bal);
   })();
 
+  const retirementReturnAssumption = effectiveReturnSequence
+    ? getAverageReturn(effectiveReturnSequence.slice(retirementYearIndex)) || netExpectedReturn
+    : netExpectedReturn;
+
   const rrspExhaustionAnnualBase = (overrides?.disableRrspExhaustion)
     ? 0
     : computeRrspExhaustionTarget(
         rrspAtRetirement,
         effectiveRetirementAge,
         planEndAge,
-        scenario.expected_return,
+        retirementReturnAssumption,
         scenario.inflation_rate,
         rrspExhaustYearsBeforeEnd
       );
@@ -999,7 +1058,7 @@ export function runSingleProjection(
       scenario.life_expectancy,
       scenario.spouse_life_expectancy,
       scenario.retirement_age,
-      scenario.expected_return,
+      retirementReturnAssumption,
       planEndAge,
       rrspExhaustYearsBeforeEnd
     );
@@ -1008,19 +1067,19 @@ export function runSingleProjection(
       ? getGlidePathAllocations(allocations, age, scenario.current_age, scenario)
       : allocations;
 
-    const returnRate = returnSequence ? returnSequence[year] : scenario.expected_return;
+    const returnRate = effectiveReturnSequence ? effectiveReturnSequence[year] : netExpectedReturn;
     applyReturns(balances, returnRate, yearAllocations);
 
     const rrspMarketReturn = preWithdrawalRrsp * (returnRate / 100);
-    const tfsaUsWeight = getAccountUsEquityWeight('tfsa', yearAllocations);
-    const tfsaDrag = tfsaUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+    const tfsaForeignWeight = getAccountForeignEquityWeight('tfsa', yearAllocations);
+    const tfsaDrag = tfsaForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
     const tfsaMarketReturn = preWithdrawalTfsa * ((returnRate - tfsaDrag) / 100);
     const fhsaMarketReturn = preWithdrawalFhsa * (returnRate / 100);
-    const nonRegPrimaryUsWeight = getAccountUsEquityWeight('non_reg', yearAllocations, 'primary');
-    const nonRegPrimaryDrag = nonRegPrimaryUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+    const nonRegPrimaryForeignWeight = getAccountForeignEquityWeight('non_reg', yearAllocations, 'primary');
+    const nonRegPrimaryDrag = nonRegPrimaryForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
     const nonRegMarketReturnPrimary = preWithdrawalNonRegPrimary * ((returnRate - nonRegPrimaryDrag) / 100);
-    const nonRegSpouseUsWeight = getAccountUsEquityWeight('non_reg', yearAllocations, 'spouse');
-    const nonRegSpouseDrag = nonRegSpouseUsWeight * FOREIGN_WITHHOLDING_DRAG * 100;
+    const nonRegSpouseForeignWeight = getAccountForeignEquityWeight('non_reg', yearAllocations, 'spouse');
+    const nonRegSpouseDrag = nonRegSpouseForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
     const nonRegMarketReturnSpouse = preWithdrawalNonRegSpouse * ((returnRate - nonRegSpouseDrag) / 100);
     const nonRegMarketReturn = nonRegMarketReturnPrimary + nonRegMarketReturnSpouse;
 
@@ -1225,16 +1284,23 @@ export async function runMonteCarloSimulation(
   const effectiveRetirementAge = overrides?.retirementAge ?? scenario.retirement_age;
   const iterations = scenario.monte_carlo_iterations;
   const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
+  const netExpectedReturn = getNetExpectedReturn(scenario);
   const geoFromScenario = (scenario.cad_equity_weight != null && scenario.us_equity_weight != null)
-    ? { cadWeight: scenario.cad_equity_weight / 100, usWeight: scenario.us_equity_weight / 100 }
+    ? {
+        cadWeight: scenario.cad_equity_weight / 100,
+        usWeight: scenario.us_equity_weight / 100,
+        intWeight: (scenario.int_equity_weight != null)
+          ? scenario.int_equity_weight / 100
+          : Math.max(0, 1 - (scenario.cad_equity_weight + scenario.us_equity_weight) / 100),
+      }
     : null;
-  const { usWeight, cadWeight } = geoFromScenario ?? getPortfolioGeoWeights(allocations || []);
+  const { usWeight, cadWeight, intWeight } = geoFromScenario ?? getPortfolioGeoWeights(allocations || []);
 
   const result = await runMonteCarloMemoryEfficient(
     iterations,
     () => {
       const returnSequence = generateReturnSequence(
-        totalYears, scenario.expected_return, scenario.return_std_dev || 10, usWeight, cadWeight
+        totalYears, netExpectedReturn, scenario.return_std_dev || 10, usWeight, cadWeight, intWeight
       );
       const inflationSequence = generateStochasticInflationSequence(totalYears, scenario.inflation_rate);
       return runSingleProjection(

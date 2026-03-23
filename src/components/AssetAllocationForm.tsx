@@ -1,14 +1,53 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { AssetAllocation, SavingsAccount, Person } from '../types/retirement';
+import { AssetAllocation, SavingsAccount, Person, RiskProfile, Scenario } from '../types/retirement';
 
 interface AssetAllocationFormProps {
   allocations: AssetAllocation[];
   onChange: (allocations: AssetAllocation[]) => void;
   savingsAccounts: SavingsAccount[];
+  scenario: Scenario;
 }
 
 const COLORS = { stocks: '#3b82f6', bonds: '#10b981', cash: '#f59e0b', real_estate: '#ef4444', other: '#6b7280' };
 const ACCOUNT_NAMES: Record<string, string> = { rrsp: 'RRSP', tfsa: 'TFSA', fhsa: 'FHSA', non_reg: 'Non-Registered' };
+
+const RISK_PROFILES: Array<{
+  id: RiskProfile;
+  label: string;
+  strategy: string;
+  stocks: number;
+  bonds: number;
+  returnRange: string;
+  description: string;
+}> = [
+  {
+    id: 'conservative',
+    label: 'Conservative',
+    strategy: 'Capital Preservation',
+    stocks: 20,
+    bonds: 80,
+    returnRange: '3.0% - 4.0%',
+    description: 'Prioritizes protecting your principal and reducing volatility. Best for short horizons or low risk tolerance.',
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    strategy: 'Growth & Income',
+    stocks: 60,
+    bonds: 40,
+    returnRange: '5.0% - 6.0%',
+    description: 'A classic middle-ground approach seeking steady growth with moderate protection against market dips.',
+  },
+  {
+    id: 'aggressive',
+    label: 'Aggressive',
+    strategy: 'Maximum Growth',
+    stocks: 90,
+    bonds: 10,
+    returnRange: '7.0% - 8.5%',
+    description: 'Maximizes long-term wealth through high equity exposure. Expect significant year-to-year value swings.',
+  },
+];
 
 interface AllocationTarget {
   key: string;
@@ -23,12 +62,66 @@ function getAllocation(allocations: AssetAllocation[], accountType: string, pers
   return specific || fallback || {
     account_type: accountType as AssetAllocation['account_type'],
     person,
-    stocks: 60, bonds: 30, cash: 10, real_estate: 0, other: 0,
-    us_equity_weight: 60, cad_equity_weight: 40
+    risk_profile: 'balanced',
+    stocks: 60, bonds: 40, cash: 0, real_estate: 0, other: 0,
+    us_equity_weight: 40, cad_equity_weight: 60, int_equity_weight: 0
   };
 }
 
-export default function AssetAllocationForm({ allocations, onChange, savingsAccounts }: AssetAllocationFormProps) {
+function getSuggestedProfile(currentAge: number, retirementAge: number): RiskProfile {
+  const yearsToRetirement = retirementAge - currentAge;
+  if (yearsToRetirement > 10) return 'aggressive';
+  if (yearsToRetirement <= 0) return 'balanced';
+  if (yearsToRetirement <= 5) return 'balanced';
+  return 'balanced';
+}
+
+function applyRiskProfile(profile: RiskProfile): Pick<AssetAllocation, 'risk_profile' | 'stocks' | 'bonds' | 'cash' | 'real_estate' | 'other'> {
+  const preset = RISK_PROFILES.find(item => item.id === profile) ?? RISK_PROFILES[1];
+  return {
+    risk_profile: preset.id,
+    stocks: preset.stocks,
+    bonds: preset.bonds,
+    cash: 0,
+    real_estate: 0,
+    other: 0,
+  };
+}
+
+function rebalanceGeoWeights(
+  current: { cad: number; us: number; intl: number },
+  field: 'cad' | 'us' | 'intl',
+  nextValue: number,
+): { cad: number; us: number; intl: number } {
+  const clamped = Math.max(0, Math.min(100, nextValue));
+  const remaining = Math.max(0, 100 - clamped);
+  const otherKeys = (['cad', 'us', 'intl'] as const).filter(key => key !== field);
+  const otherTotal = otherKeys.reduce((sum, key) => sum + current[key], 0);
+
+  const next = { ...current, [field]: clamped };
+  if (otherTotal <= 0) {
+    const equal = remaining / otherKeys.length;
+    otherKeys.forEach(key => {
+      next[key] = equal;
+    });
+  } else {
+    otherKeys.forEach((key, index) => {
+      if (index === otherKeys.length - 1) return;
+      next[key] = Number(((current[key] / otherTotal) * remaining).toFixed(2));
+    });
+    const assigned = otherKeys.slice(0, -1).reduce((sum, key) => sum + next[key], 0);
+    next[otherKeys[otherKeys.length - 1]] = Number((remaining - assigned).toFixed(2));
+  }
+
+  const total = next.cad + next.us + next.intl;
+  if (total !== 100) {
+    next.intl = Number((next.intl + (100 - total)).toFixed(2));
+  }
+
+  return next;
+}
+
+export default function AssetAllocationForm({ allocations, onChange, savingsAccounts, scenario }: AssetAllocationFormProps) {
   const presentAccountTypes = [...new Set(savingsAccounts.map(a => a.account_type))];
   const hasPrimaryNonReg = savingsAccounts.some(a => a.account_type === 'non_reg' && a.person === 'primary');
   const hasSpouseNonReg = savingsAccounts.some(a => a.account_type === 'non_reg' && a.person === 'spouse');
@@ -73,19 +166,30 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
     }
   };
 
-  const updateGeoWeight = (accountType: string, person: Person | undefined, usWeight: number) => {
-    const cadWeight = 100 - usWeight;
+  const updateGeoWeights = (accountType: string, person: Person | undefined, weights: { cad: number; us: number; intl: number }) => {
     const matches = (a: AssetAllocation) => a.account_type === accountType && (a.person ?? undefined) === person;
     const existing = allocations.find(matches);
     if (existing) {
       onChange(allocations.map(a =>
         matches(a)
-          ? { ...a, us_equity_weight: usWeight, cad_equity_weight: cadWeight }
+          ? { ...a, us_equity_weight: weights.us, cad_equity_weight: weights.cad, int_equity_weight: weights.intl }
           : a
       ));
     } else {
       const base = getAllocation(allocations, accountType, person);
-      onChange([...allocations, { ...base, us_equity_weight: usWeight, cad_equity_weight: cadWeight }]);
+      onChange([...allocations, { ...base, us_equity_weight: weights.us, cad_equity_weight: weights.cad, int_equity_weight: weights.intl }]);
+    }
+  };
+
+  const updateRiskProfile = (accountType: string, person: Person | undefined, profile: RiskProfile) => {
+    const preset = applyRiskProfile(profile);
+    const matches = (a: AssetAllocation) => a.account_type === accountType && (a.person ?? undefined) === person;
+    const existing = allocations.find(matches);
+    if (existing) {
+      onChange(allocations.map(a => matches(a) ? { ...a, ...preset } : a));
+    } else {
+      const base = getAllocation(allocations, accountType, person);
+      onChange([...allocations, { ...base, ...preset }]);
     }
   };
 
@@ -98,9 +202,16 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
 
       {allocationTargets.map(target => {
         const alloc = getAllocation(allocations, target.accountType, target.person);
+        const selectedProfile = alloc.risk_profile ?? 'balanced';
         const total = alloc.stocks + alloc.bonds + alloc.cash + alloc.real_estate + alloc.other;
         const usWeight = alloc.us_equity_weight ?? 60;
         const cadWeight = alloc.cad_equity_weight ?? 40;
+        const intlWeight = alloc.int_equity_weight ?? Math.max(0, 100 - usWeight - cadWeight);
+        const currentWeights = { cad: cadWeight, us: usWeight, intl: intlWeight };
+        const targetCurrentAge = target.person === 'spouse'
+          ? (scenario.spouse_age ?? scenario.current_age)
+          : scenario.current_age;
+        const suggestedProfile = getSuggestedProfile(targetCurrentAge, scenario.retirement_age);
 
         const pieData = [
           { name: 'Stocks', value: alloc.stocks, color: COLORS.stocks },
@@ -115,21 +226,47 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
             <h4 className="font-semibold text-gray-900 mb-4">{target.label}</h4>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-3">
-                {(['stocks', 'bonds', 'cash', 'real_estate', 'other'] as const).map(field => (
-                  <div key={field}>
-                    <div className="flex justify-between mb-1">
-                      <label className="text-sm font-medium text-gray-700 capitalize">{field.replace('_', ' ')} (%)</label>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <input type="range" min={0} max={100} step={5} value={alloc[field]}
-                        onChange={e => updateAllocation(target.accountType, target.person, field, parseInt(e.target.value))}
-                        className="flex-1 accent-blue-600" />
-                      <input type="number" min={0} max={100} step={5} value={alloc[field]}
-                        onChange={e => updateAllocation(target.accountType, target.person, field, parseFloat(e.target.value) || 0)}
-                        className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-center" />
-                    </div>
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-sm font-semibold text-gray-800">Risk Profile</label>
+                    <span className={`text-xs font-medium rounded-full px-2 py-0.5 ${total === 100 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      Mix {alloc.stocks}% / {alloc.bonds}%
+                    </span>
                   </div>
-                ))}
+                  <div className="grid grid-cols-1 gap-2">
+                    {RISK_PROFILES.map(profile => {
+                      const isSelected = selectedProfile === profile.id;
+                      const isSuggested = suggestedProfile === profile.id;
+                      return (
+                        <button
+                          key={profile.id}
+                          type="button"
+                          onClick={() => updateRiskProfile(target.accountType, target.person, profile.id)}
+                          className={`rounded-lg border px-4 py-3 text-left transition-colors ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-gray-900">{profile.label}</span>
+                                {isSuggested && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                                    Suggested
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-0.5">{profile.strategy}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-sm font-semibold text-gray-800">{profile.stocks}% / {profile.bonds}%</div>
+                              <div className="text-xs text-gray-500">{profile.returnRange}</div>
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-2 leading-5">{profile.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className={`text-sm font-semibold pt-2 border-t ${total === 100 ? 'text-green-600' : 'text-red-600'}`}>
                   Total: {total}% {total !== 100 && `— needs ${total > 100 ? total - 100 : 100 - total}% ${total > 100 ? 'removed' : 'more'}`}
                 </div>
@@ -155,42 +292,50 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
                     <span className="ml-2 text-xs font-normal text-gray-500">(applies to {alloc.stocks}% stocks allocation)</span>
                   </h5>
                   <p className="text-xs text-gray-500">
-                    Split your equity between US (S&amp;P 500) and Canadian (TSX) markets. Used in Monte Carlo simulations with correlated returns, USD/CAD currency hedging, and fat-tail risk modeling.
+                    Split your equity between Canada (TSX), US (S&amp;P 500), and International (MSCI EAFE). The three weights always stay at exactly 100%.
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-gray-600 w-20 shrink-0">US (S&amp;P 500)</span>
+                  {([
+                    { key: 'cad', label: 'Canada (TSX)', color: 'accent-red-600', value: cadWeight },
+                    { key: 'us', label: 'US (S&P 500)', color: 'accent-blue-600', value: usWeight },
+                    { key: 'intl', label: 'International', color: 'accent-violet-600', value: intlWeight },
+                  ] as const).map(item => (
+                  <div key={item.key} className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-gray-600 w-24 shrink-0">{item.label}</span>
                     <input
-                      type="range" min={0} max={100} step={5} value={usWeight}
-                      onChange={e => updateGeoWeight(target.accountType, target.person, parseInt(e.target.value))}
-                      className="flex-1 accent-blue-600"
+                      type="range" min={0} max={100} step={1} value={Math.round(item.value)}
+                      onChange={e => updateGeoWeights(target.accountType, target.person, rebalanceGeoWeights(currentWeights, item.key, parseInt(e.target.value) || 0))}
+                      className={`flex-1 ${item.color}`}
                     />
                     <input
-                      type="number" min={0} max={100} step={5} value={usWeight}
-                      onChange={e => updateGeoWeight(target.accountType, target.person, Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                      type="number" min={0} max={100} step={1} value={Math.round(item.value)}
+                      onChange={e => updateGeoWeights(target.accountType, target.person, rebalanceGeoWeights(currentWeights, item.key, Math.min(100, Math.max(0, parseInt(e.target.value) || 0))))}
                       className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-center"
                     />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-gray-600 w-20 shrink-0">CAD (TSX)</span>
-                    <div className="flex-1 bg-gray-100 rounded h-2 relative overflow-hidden">
-                      <div className="bg-emerald-500 h-full rounded transition-all" style={{ width: `${cadWeight}%` }} />
-                    </div>
-                    <span className="w-16 text-sm font-semibold text-emerald-700 text-center">{cadWeight}%</span>
+                  ))}
+                  <div className="flex gap-2 h-2 rounded-full overflow-hidden mt-2">
+                    <div className="bg-red-500 transition-all duration-200" style={{ width: `${cadWeight}%` }} />
+                    <div className="bg-blue-500 transition-all duration-200" style={{ width: `${usWeight}%` }} />
+                    <div className="bg-violet-500 transition-all duration-200" style={{ width: `${intlWeight}%` }} />
                   </div>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+                    <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center">
+                      <div className="text-xs text-red-600 font-medium">Canada (TSX)</div>
+                      <div className="text-base font-bold text-red-800">{cadWeight.toFixed(0)}%</div>
+                    </div>
                     <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-center">
-                      <div className="text-xs text-blue-600 font-medium">S&amp;P 500 (USD)</div>
-                      <div className="text-base font-bold text-blue-800">{usWeight}%</div>
+                      <div className="text-xs text-blue-600 font-medium">US (S&amp;P 500)</div>
+                      <div className="text-base font-bold text-blue-800">{usWeight.toFixed(0)}%</div>
                     </div>
-                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-center">
-                      <div className="text-xs text-emerald-600 font-medium">TSX (CAD)</div>
-                      <div className="text-base font-bold text-emerald-800">{cadWeight}%</div>
+                    <div className="bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 text-center">
+                      <div className="text-xs text-violet-600 font-medium">International</div>
+                      <div className="text-base font-bold text-violet-800">{intlWeight.toFixed(0)}%</div>
                     </div>
                   </div>
-                  {usWeight + cadWeight !== 100 && (
-                    <p className="text-xs text-red-600 mt-1">Geographic weights must sum to 100% (US: {usWeight}% + CAD: {cadWeight}% = {usWeight + cadWeight}%)</p>
+                  {Math.round(cadWeight + usWeight + intlWeight) !== 100 && (
+                    <p className="text-xs text-red-600 mt-1">Geographic weights must sum to 100%.</p>
                   )}
                 </div>
               </div>
@@ -200,8 +345,8 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
       })}
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-        <strong>Rule of 120:</strong> Subtract your age from 120 for approximate stock allocation. At age 40 → 80% stocks, 20% bonds.
-        <span className="block mt-1 text-blue-700">The geographic mix drives correlated Monte Carlo stress tests using Cholesky decomposition for S&amp;P 500 / TSX returns and models USD/CAD currency volatility.</span>
+        <strong>How this info is used:</strong> This allocation determines the expected growth rate of each account. Geographic weights for US and International equities are used to calculate foreign withholding tax drag in TFSA and Non-Registered accounts and to calibrate market volatility and currency correlations in Monte Carlo stress tests.
+        <span className="block mt-1 text-blue-700">Suggested defaults: Aggressive more than 10 years before retirement, Balanced near retirement, and Balanced or Conservative after retirement to reduce sequence-of-return risk.</span>
       </div>
     </div>
   );
