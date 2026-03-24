@@ -126,6 +126,26 @@ export function generateSuggestions(
       priority: 4
     });
   }
+
+  // 7. Minimize Lifetime Tax - suggest when OAS clawback appears in retirement years
+  const oasClawbackYears = retiredProjections.filter(p => p.cpp_ei_tax > (p.oas * 0.15)).length;
+  if (
+    oasClawbackYears >= 3 &&
+    scenario.withdrawal_strategy !== 'minimize_lifetime_tax' &&
+    scenario.withdrawal_strategy !== 'rrsp_meltdown'
+  ) {
+    suggestions.push({
+      id: 'minimize_lifetime_tax',
+      title: 'Minimize Lifetime Tax (OAS Clawback Detected)',
+      description: `Your plan shows OAS clawbacks in ${oasClawbackYears} retirement years, likely from forced RRIF income pushing taxable income above the threshold. Proactive early RRSP draws can reduce this.`,
+      benefit: 'Spreading RRSP income across more years reduces the peak taxable income that triggers OAS clawbacks, lowering total lifetime tax.',
+      overrides: {
+        withdrawalStrategy: 'minimize_lifetime_tax'
+      },
+      priority: 1
+    });
+  }
+
   // Sort by priority (lower number = higher priority)
   return suggestions.sort((a, b) => a.priority - b.priority);
 }

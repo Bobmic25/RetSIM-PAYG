@@ -105,13 +105,14 @@ export default function IncomeForm({ incomeSources, onChange, scenario }: Income
   const isCouple = scenario.profile_type === 'couple';
   const primarySources = incomeSources.filter(s => s.person === 'primary');
   const spouseSources = incomeSources.filter(s => s.person === 'spouse');
+  const spouseRetirementAge = scenario.spouse_retirement_age ?? scenario.retirement_age;
 
   const addPrimary = () => {
     onChange([...incomeSources, { person: 'primary', source_type: 'salary', name: '', amount: 0, start_age: scenario.current_age, end_age: scenario.retirement_age, growth_rate: 2 }]);
   };
 
   const addSpouse = () => {
-    onChange([...incomeSources, { person: 'spouse', source_type: 'salary', name: '', amount: 0, start_age: scenario.spouse_age || scenario.current_age, end_age: scenario.retirement_age, growth_rate: 2 }]);
+    onChange([...incomeSources, { person: 'spouse', source_type: 'salary', name: '', amount: 0, start_age: scenario.spouse_age || scenario.current_age, end_age: spouseRetirementAge, growth_rate: 2 }]);
   };
 
   const updateByPerson = (person: 'primary' | 'spouse', localIndex: number, updates: Partial<IncomeSource>) => {

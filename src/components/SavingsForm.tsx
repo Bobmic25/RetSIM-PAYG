@@ -224,6 +224,7 @@ export default function SavingsForm({ accounts, onChange, scenario, tfsaLimitDat
   const primary = accounts.filter(a => a.person === 'primary');
   const spouse = accounts.filter(a => a.person === 'spouse');
   const tfsaMonthlyLimit = tfsaLimitData ? tfsaLimitData.annualLimit / 12 : null;
+  const spouseRetirementAge = scenario.spouse_retirement_age ?? scenario.retirement_age;
 
   const applyTfsaCap = (account: SavingsAccount): SavingsAccount => {
     if (account.account_type !== 'tfsa' || tfsaMonthlyLimit == null) return account;
@@ -237,7 +238,7 @@ export default function SavingsForm({ accounts, onChange, scenario, tfsaLimitDat
       account_type: 'rrsp',
       current_balance: 0,
       monthly_contribution: 0,
-      contribution_end_age: scenario.retirement_age,
+      contribution_end_age: person === 'spouse' ? spouseRetirementAge : scenario.retirement_age,
       deduct_from_salary: true,
     }]);
   };
@@ -308,7 +309,7 @@ export default function SavingsForm({ accounts, onChange, scenario, tfsaLimitDat
         accounts={spouse} onAdd={() => addAccount('spouse')}
         onUpdate={(i, u) => updateByPerson('spouse', i, u)}
         onRemove={i => removeByPerson('spouse', i)}
-        retirementAge={scenario.retirement_age}
+        retirementAge={spouseRetirementAge}
         tfsaLimitData={tfsaLimitData} />
     </div>
   );

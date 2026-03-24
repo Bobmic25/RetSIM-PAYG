@@ -219,7 +219,7 @@ export default function SaveLoadScenarios({
                   <p className="font-medium text-gray-900">{saved.name}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{formatDate(saved.created_at)}</p>
                   <div className="flex gap-3 mt-1 text-xs text-gray-500">
-                    <span>Age {saved.scenario.current_age} → {saved.scenario.retirement_age}</span>
+                    <span>Age {saved.scenario.current_age} → {saved.scenario.retirement_age}{saved.scenario.profile_type === 'couple' ? ` / spouse ${saved.scenario.spouse_retirement_age ?? saved.scenario.retirement_age}` : ''}</span>
                     <span>{saved.scenario.province}</span>
                     <span>{saved.scenario.return_type === 'monte_carlo' ? 'Monte Carlo' : 'Linear'}</span>
                   </div>

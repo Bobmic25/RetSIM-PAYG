@@ -1,4 +1,4 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Text } from 'recharts';
+import { ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Text, Line } from 'recharts';
 import { TooltipProps } from 'recharts';
 import { YearlyProjection } from '../types/retirement';
 import { presentValue } from '../lib/benefitsEngine';
@@ -8,6 +8,18 @@ interface CashFlowChartProps {
   showToday: boolean;
   inflationRate?: number;
 }
+
+const BAR_SERIES = [
+  { dataKey: 'Salary', color: '#3b82f6' },
+  { dataKey: 'CPP', color: '#8b5cf6' },
+  { dataKey: 'OAS', color: '#ec4899' },
+  { dataKey: 'DB Pension', color: '#0ea5e9' },
+  { dataKey: 'RRSP Withdrawal', color: '#f59e0b' },
+  { dataKey: 'TFSA Withdrawal', color: '#10b981' },
+  { dataKey: 'FHSA Withdrawal', color: '#0891b2' },
+  { dataKey: 'Non-Reg Withdrawal', color: '#6366f1' },
+  { dataKey: 'Inheritance', color: '#14b8a6' },
+] as const;
 
 function buildChartData(data: YearlyProjection[], showToday: boolean, inflationRate: number) {
   const startYear = data[0]?.year ?? 0;
@@ -21,18 +33,25 @@ function buildChartData(data: YearlyProjection[], showToday: boolean, inflationR
     const dbPension = pv(item.db_pension || 0);
     const rrsp = pv(item.rrsp_withdrawal || 0);
     const tfsa = pv(item.tfsa_withdrawal || 0);
+    const fhsa = pv(item.fhsa_withdrawal || 0);
     const nonReg = pv(item.non_reg_withdrawal || 0);
     const inheritance = pv(item.inheritance || 0);
+    const expenses = pv(item.total_expenses || 0);
+    const afterTaxIncome = pv(item.after_tax_income || 0);
+    const grossCashIn = salary + cpp + oas + dbPension + rrsp + tfsa + fhsa + nonReg + inheritance;
 
     return {
       age: item.age,
-      afterTaxTotal: salary + cpp + oas + dbPension + rrsp + tfsa + nonReg + inheritance,
+      grossCashIn,
+      afterTaxTotal: afterTaxIncome,
+      Expenses: expenses,
       Salary: salary,
       CPP: cpp,
       OAS: oas,
       ...(dbPension > 0 ? { 'DB Pension': dbPension } : {}),
       'RRSP Withdrawal': rrsp,
       'TFSA Withdrawal': tfsa,
+      ...(fhsa > 0 ? { 'FHSA Withdrawal': fhsa } : {}),
       'Non-Reg Withdrawal': nonReg,
       Inheritance: inheritance,
     };
@@ -46,14 +65,25 @@ const COLORS: Record<string, string> = {
   'DB Pension': '#0ea5e9',
   'RRSP Withdrawal': '#f59e0b',
   'TFSA Withdrawal': '#10b981',
+  'FHSA Withdrawal': '#0891b2',
   'Non-Reg Withdrawal': '#6366f1',
   Inheritance: '#14b8a6',
+  'After-Tax Income': '#111827',
+  Expenses: '#dc2626',
 };
 
 function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload || !payload.length) return null;
 
-  const afterTaxTotal = (payload[0]?.payload as { afterTaxTotal: number })?.afterTaxTotal ?? 0;
+  const chartRow = payload[0]?.payload as {
+    grossCashIn: number;
+    afterTaxTotal: number;
+    Expenses: number;
+  } | undefined;
+  const grossCashIn = chartRow?.grossCashIn ?? 0;
+  const afterTaxTotal = chartRow?.afterTaxTotal ?? 0;
+  const expenses = chartRow?.Expenses ?? 0;
+  const payloadItems = payload.filter(entry => !['After-Tax Income', 'Expenses'].includes(entry.name ?? ''));
 
   return (
     <div style={{
@@ -65,10 +95,21 @@ function CustomTooltip({ active, payload, label }: TooltipProps<number, string>)
       minWidth: 220,
     }}>
       <p style={{ fontWeight: 700, color: '#111827', marginBottom: 4 }}>Age {label}</p>
-      <p style={{ fontWeight: 700, color: '#111827', marginBottom: 8, fontSize: 13 }}>
-        Total After Tax: ${Math.round(afterTaxTotal).toLocaleString()}
-      </p>
-      {payload.map((entry) => (
+      <div style={{ marginBottom: 8, fontSize: 13 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontWeight: 700, color: '#111827', marginBottom: 2 }}>
+          <span>Gross Cash In</span>
+          <span>${Math.round(grossCashIn).toLocaleString()}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontWeight: 700, color: COLORS['After-Tax Income'], marginBottom: 2 }}>
+          <span>After-Tax Income</span>
+          <span>${Math.round(afterTaxTotal).toLocaleString()}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontWeight: 700, color: COLORS.Expenses }}>
+          <span>Expenses</span>
+          <span>${Math.round(expenses).toLocaleString()}</span>
+        </div>
+      </div>
+      {payloadItems.map((entry) => (
         <div key={entry.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12, marginBottom: 2 }}>
           <span style={{ color: COLORS[entry.name ?? ''] ?? '#111827' }}>{entry.name}</span>
           <span style={{ color: COLORS[entry.name ?? ''] ?? '#111827' }}>
@@ -97,12 +138,16 @@ function CustomTick(props: Record<string, unknown>) {
 
 export default function CashFlowChart({ data, showToday, inflationRate = 2.5 }: CashFlowChartProps) {
   const chartData = buildChartData(data, showToday, inflationRate);
+  const visibleBarSeries = BAR_SERIES.filter(({ dataKey }) =>
+    chartData.some((row) => Number(row[dataKey as keyof typeof row] ?? 0) > 0)
+  );
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-xl font-bold text-gray-900 mb-4">Income Sources by Year</h3>
+      <h3 className="text-xl font-bold text-gray-900 mb-1">Cash Flow by Year</h3>
+      <p className="text-sm text-gray-500 mb-4">Stacked bars show gross cash sources. Lines show after-tax income and planned expenses.</p>
       <ResponsiveContainer width="100%" height={440}>
-        <BarChart data={chartData} margin={{ bottom: 24 }}>
+        <ComposedChart data={chartData} margin={{ bottom: 24 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
             dataKey="age"
@@ -112,7 +157,7 @@ export default function CashFlowChart({ data, showToday, inflationRate = 2.5 }: 
           />
           <YAxis
             label={{
-              value: showToday ? "Income (Today's $)" : 'Income ($)',
+              value: showToday ? "Cash Flow (Today's $)" : 'Cash Flow ($)',
               angle: -90,
               position: 'insideLeft',
             }}
@@ -120,15 +165,28 @@ export default function CashFlowChart({ data, showToday, inflationRate = 2.5 }: 
           />
           <Tooltip content={<CustomTooltip />} />
           <Legend />
-          <Bar dataKey="Salary" stackId="a" fill="#3b82f6" />
-          <Bar dataKey="CPP" stackId="a" fill="#8b5cf6" />
-          <Bar dataKey="OAS" stackId="a" fill="#ec4899" />
-          <Bar dataKey="DB Pension" stackId="a" fill="#0ea5e9" />
-          <Bar dataKey="RRSP Withdrawal" stackId="a" fill="#f59e0b" />
-          <Bar dataKey="TFSA Withdrawal" stackId="a" fill="#10b981" />
-          <Bar dataKey="Non-Reg Withdrawal" stackId="a" fill="#6366f1" />
-          <Bar dataKey="Inheritance" stackId="a" fill="#14b8a6" />
-        </BarChart>
+          {visibleBarSeries.map(({ dataKey, color }) => (
+            <Bar key={dataKey} dataKey={dataKey} stackId="a" fill={color} />
+          ))}
+          <Line
+            type="monotone"
+            dataKey="afterTaxTotal"
+            name="After-Tax Income"
+            stroke="#111827"
+            strokeWidth={3}
+            dot={false}
+            activeDot={{ r: 5 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="Expenses"
+            stroke="#dc2626"
+            strokeWidth={2.5}
+            strokeDasharray="6 4"
+            dot={false}
+            activeDot={{ r: 5 }}
+          />
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );

@@ -237,11 +237,32 @@ export default function ProfileForm({ scenario, onChange, onLoadScenario }: Prof
           </div>
         )}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Retirement Age</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            {scenario.profile_type === 'couple' ? 'Primary Retirement Age' : 'Retirement Age'}
+          </label>
           <input type="number" value={scenario.retirement_age} min={50} max={MAX_AGE}
             onChange={e => onChange({ retirement_age: clampAge(parseInt(e.target.value), scenario.retirement_age, 50) })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
+        {scenario.profile_type === 'couple' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Spouse Retirement Age</label>
+            <input
+              type="number"
+              value={scenario.spouse_retirement_age ?? scenario.retirement_age}
+              min={50}
+              max={MAX_AGE}
+              onChange={e => onChange({
+                spouse_retirement_age: clampAge(
+                  parseInt(e.target.value),
+                  scenario.spouse_retirement_age ?? scenario.retirement_age,
+                  50
+                )
+              })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Plan Duration (years post-retirement)</label>
           <input type="number" value={scenario.plan_duration} min={10} max={50}
@@ -304,7 +325,7 @@ export default function ProfileForm({ scenario, onChange, onLoadScenario }: Prof
           onHasDbPension={v => onChange({ spouse_has_db_pension: v })}
           dbPensionAmount={scenario.spouse_db_pension_amount || 0}
           onDbPensionAmount={v => onChange({ spouse_db_pension_amount: v })}
-          dbPensionStartAge={scenario.spouse_db_pension_start_age || scenario.retirement_age}
+          dbPensionStartAge={scenario.spouse_db_pension_start_age || scenario.spouse_retirement_age || scenario.retirement_age}
           onDbPensionStartAge={v => onChange({ spouse_db_pension_start_age: v })}
           dbPensionIndexed={scenario.spouse_db_pension_indexed || false}
           onDbPensionIndexed={v => onChange({ spouse_db_pension_indexed: v })}

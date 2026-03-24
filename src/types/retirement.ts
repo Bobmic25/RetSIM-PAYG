@@ -1,6 +1,6 @@
 export type ProfileType = 'individual' | 'couple';
 export type ReturnType = 'linear' | 'monte_carlo';
-export type WithdrawalStrategy = 'maximize_spending' | 'maximize_estate' | 'tax_efficient' | 'net_expenses_only' | 'rrsp_meltdown';
+export type WithdrawalStrategy = 'maximize_spending' | 'maximize_estate' | 'tax_efficient' | 'net_expenses_only' | 'rrsp_meltdown' | 'minimize_lifetime_tax';
 export type AccountType = 'rrsp' | 'tfsa' | 'fhsa' | 'non_reg';
 export type IncomeSourceType = 'salary' | 'pension' | 'rental' | 'other';
 export type EventType = 'inheritance' | 'expense';
@@ -30,6 +30,7 @@ export interface Scenario {
   current_age: number;
   spouse_age?: number;
   retirement_age: number;
+  spouse_retirement_age?: number;
   plan_duration: number;
   province: Province;
   inflation_rate: number;
@@ -150,6 +151,7 @@ export interface YearlyProjection {
   inheritance: number;
   total_income: number;
   tfsa_withdrawal: number;
+  fhsa_withdrawal?: number;
   rrsp_withdrawal: number;
   rrsp_withdrawal_primary?: number;
   rrsp_withdrawal_spouse?: number;
