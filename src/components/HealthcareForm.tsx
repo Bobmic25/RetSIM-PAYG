@@ -1,7 +1,8 @@
 import { Plus, Trash2, Info } from 'lucide-react';
 import { Scenario, HealthcareStep } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
-import { MAX_AGE, clampAge } from '../lib/ageUtils';
+import { MAX_AGE } from '../lib/ageUtils';
+import { AgeInput } from './AgeInput';
 
 interface HealthcareFormProps {
   steps: HealthcareStep[];
@@ -129,23 +130,21 @@ export default function HealthcareForm({ steps, onChange, scenario }: Healthcare
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">From Age</label>
-                <input
-                  type="number"
+                <AgeInput
                   value={step.from_age}
                   min={18}
                   max={MAX_AGE}
-                  onChange={e => updateStep(index, { from_age: clampAge(parseInt(e.target.value), step.from_age) })}
+                  onChange={v => updateStep(index, { from_age: v! })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">To Age</label>
-                <input
-                  type="number"
+                <AgeInput
                   value={step.to_age}
                   min={step.from_age}
                   max={MAX_AGE}
-                  onChange={e => updateStep(index, { to_age: clampAge(parseInt(e.target.value), step.to_age, step.from_age) })}
+                  onChange={v => updateStep(index, { to_age: v! })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>

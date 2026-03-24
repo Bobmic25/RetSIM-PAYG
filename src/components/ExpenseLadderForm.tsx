@@ -1,7 +1,8 @@
 import { Plus, Trash2, Info } from 'lucide-react';
 import { ExpenseLadder, Scenario } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
-import { MAX_AGE, clampAge } from '../lib/ageUtils';
+import { MAX_AGE } from '../lib/ageUtils';
+import { AgeInput } from './AgeInput';
 
 interface ExpenseLadderFormProps {
   expenses: ExpenseLadder[];
@@ -129,23 +130,21 @@ export default function ExpenseLadderForm({ expenses, onChange, scenario }: Expe
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Start Age</label>
-                <input
-                  type="number"
+                <AgeInput
                   value={step.start_age}
                   min={18}
                   max={MAX_AGE}
-                  onChange={e => updateStep(index, { start_age: clampAge(parseInt(e.target.value), step.start_age) })}
+                  onChange={v => updateStep(index, { start_age: v! })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">End Age</label>
-                <input
-                  type="number"
+                <AgeInput
                   value={step.end_age}
                   min={step.start_age}
                   max={MAX_AGE}
-                  onChange={e => updateStep(index, { end_age: clampAge(parseInt(e.target.value), step.end_age, step.start_age) })}
+                  onChange={v => updateStep(index, { end_age: v! })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
               </div>

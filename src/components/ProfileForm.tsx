@@ -1,13 +1,23 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { FolderOpen } from 'lucide-react';
-import { Scenario, Province } from '../types/retirement';
+import { Scenario, Province, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
-import { MAX_AGE, clampAge } from '../lib/ageUtils';
+import { MAX_AGE } from '../lib/ageUtils';
+import { AgeInput } from './AgeInput';
+
+interface LoadedData {
+  scenario: Scenario;
+  incomeSources: IncomeSource[];
+  savingsAccounts: SavingsAccount[];
+  expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
+  oneTimeEvents: OneTimeEvent[];
+}
 
 interface ProfileFormProps {
   scenario: Scenario;
   onChange: (updates: Partial<Scenario>) => void;
-  onLoadScenario?: () => void;
+  onLoadData?: (data: LoadedData) => void;
 }
 
 const PROVINCES: { value: Province; label: string }[] = [
@@ -50,8 +60,8 @@ function DbPensionPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Pension Start Age</label>
-          <input type="number" value={startAge} min={50} max={MAX_AGE}
-            onChange={e => onStartAge(clampAge(parseInt(e.target.value), 65, 50))}
+          <AgeInput value={startAge} min={50} max={MAX_AGE}
+            onChange={v => onStartAge(v!)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         <div>
@@ -117,8 +127,8 @@ function CppOasPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">CPP Start Age (60–70)</label>
-          <input type="number" value={cppStartAge} min={60} max={70}
-            onChange={e => onCppStartAge(parseInt(e.target.value) || 65)}
+          <AgeInput value={cppStartAge} min={60} max={70}
+            onChange={v => onCppStartAge(v!)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         <div>
@@ -141,8 +151,8 @@ function CppOasPanel({
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">OAS Start Age (65–70)</label>
-          <input type="number" value={oasStartAge} min={65} max={70}
-            onChange={e => onOasStartAge(parseInt(e.target.value) || 65)}
+          <AgeInput value={oasStartAge} min={65} max={70}
+            onChange={v => onOasStartAge(v!)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         <div>
@@ -192,20 +202,56 @@ function CppOasPanel({
   );
 }
 
-export default function ProfileForm({ scenario, onChange, onLoadScenario }: ProfileFormProps) {
+export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileFormProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string);
+        if (parsed.scenario && onLoadData) {
+          onLoadData({
+            scenario: parsed.scenario,
+            incomeSources: parsed.incomeSources || [],
+            savingsAccounts: parsed.savingsAccounts || [],
+            expenseLadder: parsed.expenseLadder || [],
+            healthcareSteps: parsed.healthcareSteps || [],
+            oneTimeEvents: parsed.oneTimeEvents || [],
+          });
+        }
+      } catch {
+        alert('Invalid file format');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-900">Profile Settings</h3>
-        {onLoadScenario && (
-          <button
-            type="button"
-            onClick={onLoadScenario}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-          >
-            <FolderOpen className="w-4 h-4" />
-            Load Saved Scenario
-          </button>
+        {onLoadData && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+            >
+              <FolderOpen className="w-4 h-4" />
+              Load Saved Scenario
+            </button>
+          </>
         )}
       </div>
 
@@ -224,15 +270,15 @@ export default function ProfileForm({ scenario, onChange, onLoadScenario }: Prof
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Current Age</label>
-          <input type="number" value={scenario.current_age} min={18} max={MAX_AGE}
-            onChange={e => onChange({ current_age: clampAge(parseInt(e.target.value), scenario.current_age) })}
+          <AgeInput value={scenario.current_age} min={18} max={MAX_AGE}
+            onChange={v => onChange({ current_age: v! })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         {scenario.profile_type === 'couple' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Spouse Age</label>
-            <input type="number" value={scenario.spouse_age || ''} min={18} max={MAX_AGE}
-              onChange={e => onChange({ spouse_age: e.target.value ? clampAge(parseInt(e.target.value), scenario.spouse_age || scenario.current_age) : undefined })}
+            <AgeInput value={scenario.spouse_age} min={18} max={MAX_AGE} optional
+              onChange={v => onChange({ spouse_age: v })}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
           </div>
         )}
@@ -240,25 +286,18 @@ export default function ProfileForm({ scenario, onChange, onLoadScenario }: Prof
           <label className="block text-sm font-medium text-gray-700 mb-2">
             {scenario.profile_type === 'couple' ? 'Primary Retirement Age' : 'Retirement Age'}
           </label>
-          <input type="number" value={scenario.retirement_age} min={50} max={MAX_AGE}
-            onChange={e => onChange({ retirement_age: clampAge(parseInt(e.target.value), scenario.retirement_age, 50) })}
+          <AgeInput value={scenario.retirement_age} min={50} max={MAX_AGE}
+            onChange={v => onChange({ retirement_age: v! })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
         {scenario.profile_type === 'couple' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Spouse Retirement Age</label>
-            <input
-              type="number"
+            <AgeInput
               value={scenario.spouse_retirement_age ?? scenario.retirement_age}
               min={50}
               max={MAX_AGE}
-              onChange={e => onChange({
-                spouse_retirement_age: clampAge(
-                  parseInt(e.target.value),
-                  scenario.spouse_retirement_age ?? scenario.retirement_age,
-                  50
-                )
-              })}
+              onChange={v => onChange({ spouse_retirement_age: v! })}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>

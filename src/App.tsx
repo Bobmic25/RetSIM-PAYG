@@ -451,7 +451,7 @@ function App() {
               <ProfileForm
                 scenario={scenario}
                 onChange={updateScenario}
-                onLoadScenario={() => navigateTo(9)}
+                onLoadData={handleLoadScenario}
               />
             )}
             {currentStep === 1 && (
