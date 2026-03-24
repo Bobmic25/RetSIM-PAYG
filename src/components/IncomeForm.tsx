@@ -1,7 +1,8 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { IncomeSource, Scenario } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
-import { MAX_AGE, clampAge } from '../lib/ageUtils';
+import { MAX_AGE } from '../lib/ageUtils';
+import { AgeInput } from './AgeInput';
 
 interface IncomeFormProps {
   incomeSources: IncomeSource[];
@@ -57,15 +58,16 @@ function IncomeCard({ source, index, onUpdate, onRemove, currentAge }: {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Start Age</label>
-          <input type="number" value={source.start_age} min={18} max={MAX_AGE}
-            onChange={e => onUpdate(index, { start_age: clampAge(parseInt(e.target.value), currentAge) })}
+          <AgeInput value={source.start_age} min={18} max={MAX_AGE}
+            onChange={v => onUpdate(index, { start_age: v! })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">End Age (optional)</label>
-          <input type="number" value={source.end_age || ''} min={18} max={MAX_AGE}
-            onChange={e => onUpdate(index, { end_age: e.target.value ? clampAge(parseInt(e.target.value), source.end_age || source.start_age) : undefined })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="Leave blank for lifetime" />
+          <AgeInput value={source.end_age} min={18} max={MAX_AGE} optional
+            placeholder="Leave blank for lifetime"
+            onChange={v => onUpdate(index, { end_age: v })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
         </div>
       </div>
     </div>
@@ -105,13 +107,14 @@ export default function IncomeForm({ incomeSources, onChange, scenario }: Income
   const isCouple = scenario.profile_type === 'couple';
   const primarySources = incomeSources.filter(s => s.person === 'primary');
   const spouseSources = incomeSources.filter(s => s.person === 'spouse');
+  const spouseRetirementAge = scenario.spouse_retirement_age ?? scenario.retirement_age;
 
   const addPrimary = () => {
     onChange([...incomeSources, { person: 'primary', source_type: 'salary', name: '', amount: 0, start_age: scenario.current_age, end_age: scenario.retirement_age, growth_rate: 2 }]);
   };
 
   const addSpouse = () => {
-    onChange([...incomeSources, { person: 'spouse', source_type: 'salary', name: '', amount: 0, start_age: scenario.spouse_age || scenario.current_age, end_age: scenario.retirement_age, growth_rate: 2 }]);
+    onChange([...incomeSources, { person: 'spouse', source_type: 'salary', name: '', amount: 0, start_age: scenario.spouse_age || scenario.current_age, end_age: spouseRetirementAge, growth_rate: 2 }]);
   };
 
   const updateByPerson = (person: 'primary' | 'spouse', localIndex: number, updates: Partial<IncomeSource>) => {

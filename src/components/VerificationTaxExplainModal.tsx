@@ -47,21 +47,21 @@ function getBenefitBreakdown(
   const cppStartAge = isSpouse ? (scenario.spouse_cpp_start_age || 65) : scenario.cpp_start_age;
   const cppAmount65 = isSpouse ? (scenario.spouse_cpp_amount_65 || 0) : scenario.cpp_amount_65;
   const baseCpp = calculateCPPBenefit(cppAmount65 || 0, cppStartAge);
-  const cpp = age >= cppStartAge ? adjustForInflation(baseCpp, yearIndex, scenario.inflation_rate) : 0;
+  const cpp = (isSpouse ? spouseAge : age) >= cppStartAge ? adjustForInflation(baseCpp, yearIndex, scenario.inflation_rate) : 0;
 
   const oasStartAge = isSpouse ? (scenario.spouse_oas_start_age || 65) : scenario.oas_start_age;
   const oasBaseAmount = isSpouse ? (scenario.spouse_oas_amount_65 || 8505) : (scenario.oas_amount_65 || 8505);
   const baseOas = calculateOASBenefit(oasStartAge, oasBaseAmount);
   const bumpedOas = applyOAS75Bump(baseOas, isSpouse ? spouseAge : age);
-  const oas = age >= oasStartAge ? adjustForInflation(bumpedOas, yearIndex, scenario.inflation_rate) : 0;
+  const oas = (isSpouse ? spouseAge : age) >= oasStartAge ? adjustForInflation(bumpedOas, yearIndex, scenario.inflation_rate) : 0;
 
   const hasDbPension = isSpouse ? scenario.spouse_has_db_pension : scenario.has_db_pension;
   const dbPensionAmount = isSpouse ? scenario.spouse_db_pension_amount : scenario.db_pension_amount;
   const dbPensionStartAge = isSpouse
-    ? (scenario.spouse_db_pension_start_age ?? scenario.retirement_age)
+    ? (scenario.spouse_db_pension_start_age ?? scenario.spouse_retirement_age ?? scenario.retirement_age)
     : (scenario.db_pension_start_age ?? scenario.retirement_age);
   const dbPensionIndexed = isSpouse ? scenario.spouse_db_pension_indexed : scenario.db_pension_indexed;
-  const dbPension = hasDbPension && dbPensionAmount && age >= dbPensionStartAge
+  const dbPension = hasDbPension && dbPensionAmount && (isSpouse ? spouseAge : age) >= dbPensionStartAge
     ? (dbPensionIndexed ? adjustForInflation(dbPensionAmount, yearIndex, scenario.inflation_rate) : dbPensionAmount)
     : 0;
 

@@ -137,6 +137,7 @@ function App() {
     profile_type: 'individual',
     current_age: 35,
     retirement_age: 65,
+    spouse_retirement_age: 65,
     plan_duration: 30,
     province: 'ON' as Province,
     inflation_rate: 2.5,
@@ -175,6 +176,7 @@ function App() {
   const [liveTaxData, setLiveTaxData] = useState<LiveTaxData | null>(null);
   const [taxDataStatus, setTaxDataStatus] = useState<'loading' | 'live' | 'fallback'>('loading');
   const [tfsaLimitData, setTfsaLimitData] = useState<LiveTfsaLimitData | null>(null);
+  const [mcIsStale, setMcIsStale] = useState(false);
   const calculationPending = useRef(false);
 
   useEffect(() => {
@@ -220,6 +222,7 @@ function App() {
 
     setIsCalculating(true);
     setMcProgress(null);
+    setMcIsStale(false);
 
     if (simScenario.return_type === 'monte_carlo') {
       clearTaxCache();
@@ -234,6 +237,7 @@ function App() {
           } else if (msg.type === 'result') {
             setProjections(msg.result.percentile_50);
             setMonteCarloResult(msg.result);
+            setMcIsStale(false);
             worker.terminate();
             activeWorkerRef.current = null;
             resolve();
@@ -365,10 +369,42 @@ function App() {
       rrsp_exhaustion_years_before_end: normalizedRrspExhaustYears
     };
     setScenario(updatedScenario);
+
+    // In Monte Carlo mode with existing results, only re-run the deterministic projection
+    // to avoid expensive MC re-computation when the user is just browsing strategies.
+    if (updatedScenario.return_type === 'monte_carlo' && monteCarloResult) {
+      setMcIsStale(true);
+      setIsCalculating(true);
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      const result = runSingleProjection(
+        updatedScenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        undefined,
+        undefined,
+        undefined,
+        assetAllocations
+      );
+      setProjections(result);
+      setIsCalculating(false);
+      return;
+    }
+
     try {
       await runSimulation(updatedScenario);
     } catch (error) {
       console.error('Error changing withdrawal strategy:', error);
+    }
+  };
+
+  const handleRerunMonteCarlo = async () => {
+    try {
+      await runSimulation();
+    } catch (error) {
+      console.error('Error re-running Monte Carlo simulation:', error);
     }
   };
 
@@ -386,6 +422,7 @@ function App() {
       management_fee_pct: data.scenario.management_fee_pct ?? 0,
       return_periods: data.scenario.return_periods ?? [],
       rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2,
+      spouse_retirement_age: data.scenario.spouse_retirement_age ?? data.scenario.retirement_age,
       cad_equity_weight: data.scenario.cad_equity_weight ?? 60,
       us_equity_weight: data.scenario.us_equity_weight ?? 40,
       int_equity_weight: data.scenario.int_equity_weight ?? Math.max(0, 100 - (data.scenario.cad_equity_weight ?? 60) - (data.scenario.us_equity_weight ?? 40))
@@ -414,7 +451,7 @@ function App() {
               <ProfileForm
                 scenario={scenario}
                 onChange={updateScenario}
-                onLoadScenario={() => navigateTo(9)}
+                onLoadData={handleLoadScenario}
               />
             )}
             {currentStep === 1 && (
@@ -473,26 +510,46 @@ function App() {
                 onLoad={handleLoadScenario}
               />
             )}
-            {currentStep === RESULTS_STEP && (
-              isCalculating ? (
-                <div className="flex flex-col items-center justify-center py-24 gap-4">
-                  <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                  {mcProgress ? (
-                    <div className="flex flex-col items-center gap-2 w-64">
-                      <p className="text-gray-600 font-medium">Running Monte Carlo simulation...</p>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-200"
-                          style={{ width: `${(mcProgress.completed / mcProgress.total) * 100}%` }}
-                        />
-                      </div>
-                      <p className="text-sm text-gray-500">{mcProgress.completed.toLocaleString()} / {mcProgress.total.toLocaleString()} iterations</p>
+            {currentStep === RESULTS_STEP && isCalculating && projections.length === 0 && (
+              <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                {mcProgress ? (
+                  <div className="flex flex-col items-center gap-2 w-64">
+                    <p className="text-gray-600 font-medium">Running Monte Carlo simulation...</p>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-200"
+                        style={{ width: `${(mcProgress.completed / mcProgress.total) * 100}%` }}
+                      />
                     </div>
-                  ) : (
-                    <p className="text-gray-600 font-medium">Calculating your retirement projection...</p>
-                  )}
-                </div>
-              ) : (
+                    <p className="text-sm text-gray-500">{mcProgress.completed.toLocaleString()} / {mcProgress.total.toLocaleString()} iterations</p>
+                  </div>
+                ) : (
+                  <p className="text-gray-600 font-medium">Calculating your retirement projection...</p>
+                )}
+              </div>
+            )}
+            {currentStep === RESULTS_STEP && projections.length > 0 && (
+              <div className="relative">
+                {isCalculating && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center min-h-[400px] bg-white/90 backdrop-blur-sm z-10 gap-4 rounded-xl">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    {mcProgress ? (
+                      <div className="flex flex-col items-center gap-2 w-64">
+                        <p className="text-gray-600 font-medium">Running Monte Carlo simulation...</p>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-200"
+                            style={{ width: `${(mcProgress.completed / mcProgress.total) * 100}%` }}
+                          />
+                        </div>
+                        <p className="text-sm text-gray-500">{mcProgress.completed.toLocaleString()} / {mcProgress.total.toLocaleString()} iterations</p>
+                      </div>
+                    ) : (
+                      <p className="text-gray-600 font-medium">Calculating your retirement projection...</p>
+                    )}
+                  </div>
+                )}
                 <ResultsDashboard
                   projections={projections}
                   monteCarloResult={monteCarloResult}
@@ -516,13 +573,15 @@ function App() {
                   taxDataStatus={taxDataStatus}
                   showAISuggestions={showAISuggestions}
                   onWithdrawalStrategyChange={handleWithdrawalStrategyChange}
+                  mcIsStale={mcIsStale}
+                  onRerunMonteCarlo={handleRerunMonteCarlo}
                   onTaxDataRefreshed={(data) => {
                     setActiveLiveTaxData(data);
                     setLiveTaxData(data);
                     setTaxDataStatus('live');
                   }}
                 />
-              )
+              </div>
             )}
           </div>
 

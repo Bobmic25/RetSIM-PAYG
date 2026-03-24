@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp, Info, X } from 'lucide-react';
 import { YearlyProjection, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
-import { runCppOasOptimization, CppOasOptimizationRow } from '../lib/projectionEngine';
+import { runCppOasOptimization, CppOasOptimizationRow, CppOasOptimizationResult } from '../lib/projectionEngine';
 import { presentValue, GIS_MAX_SINGLE_ANNUAL_2026, GIS_MAX_COUPLE_ANNUAL_2026, GIS_CLAWBACK_RATE } from '../lib/benefitsEngine';
 import {
   OAS_CLAWBACK_THRESHOLD_2026,
@@ -158,7 +158,7 @@ export default function ProjectionTable({
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   const [showTaxableInfo, setShowTaxableInfo] = useState(false);
   const [showFitScoreInfo, setShowFitScoreInfo] = useState(false);
-  const [optimRows, setOptimRows] = useState<CppOasOptimizationRow[] | null>(null);
+  const [optimResult, setOptimResult] = useState<CppOasOptimizationResult | null>(null);
   const [isRunningOptim, setIsRunningOptim] = useState(false);
   const optimSectionRef = useRef<HTMLDivElement>(null);
 
@@ -198,31 +198,34 @@ export default function ProjectionTable({
   const runOptimizationFn = () => {
     setIsRunningOptim(true);
     setTimeout(() => {
-      const rows = runCppOasOptimization(
-        scenario,
-        incomeSources,
-        savingsAccounts,
-        expenseLadder,
-        healthcareSteps,
-        oneTimeEvents,
-        {
-          showTodayDollars,
-          inflationRate
-        }
-      );
-      setOptimRows(rows);
-      setIsRunningOptim(false);
-      // Scroll the optimization section into view so the results are immediately visible.
-      setTimeout(() => {
-        optimSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 120);
+      try {
+        const result = runCppOasOptimization(
+          scenario,
+          incomeSources,
+          savingsAccounts,
+          expenseLadder,
+          healthcareSteps,
+          oneTimeEvents,
+          {
+            showTodayDollars,
+            inflationRate
+          }
+        );
+        setOptimResult(result);
+        setTimeout(() => {
+          optimSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      } catch (err) {
+        console.error('CPP/OAS optimization failed:', err);
+      } finally {
+        setIsRunningOptim(false);
+      }
     }, 50);
   };
 
   const runOptimization = () => {
     runOptimizationFn();
   };
-
   const hasNonReg = projections.some(p => p.non_reg_withdrawal > 0 || p.non_reg_balance > 0);
   const hasFhsa = projections.some(p => p.fhsa_balance > 0);
 
@@ -471,8 +474,9 @@ export default function ProjectionTable({
       {showOptimTable && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
-            Compare outcomes by starting CPP and OAS at different ages independently (66 combinations). All
-            metrics are <strong>retirement-period only</strong> and match the summary card calculation.
+            {scenario.profile_type === 'couple'
+              ? 'Two-phase optimization: first optimizes the earlier retiree\'s CPP/OAS, then the second person\'s with the first held at their best setting (66 combinations each).'
+              : 'Compare outcomes by starting CPP and OAS at different ages independently (66 combinations). All metrics are retirement-period only.'}
           </p>
           <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
             <span className="font-semibold text-gray-700">Fit Score weights:</span>
@@ -482,91 +486,107 @@ export default function ProjectionTable({
             <span className="text-gray-400 ml-1">— higher = better balance of spending vs. tax efficiency</span>
           </div>
 
-          {!optimRows && (
+          {!optimResult && (
             <button
               onClick={runOptimization}
               disabled={isRunningOptim}
               className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400 text-sm font-medium"
             >
-              {isRunningOptim ? 'Calculating...' : 'Run CPP/OAS Optimization (66 scenarios)'}
+              {isRunningOptim
+                ? 'Calculating...'
+                : scenario.profile_type === 'couple'
+                  ? 'Run CPP/OAS Optimization (2-phase, 132 scenarios)'
+                  : 'Run CPP/OAS Optimization (66 scenarios)'}
             </button>
           )}
 
-          {optimRows && (
+          {optimResult && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {optimRows.slice(0, 4).map((row, idx) => (
-                  <div key={`rec-${idx}`} className="border border-green-200 bg-green-50 rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-green-900">Recommended #{idx + 1}</p>
-                      <span className="text-xs font-medium text-green-700">Fit Score: {(row.recommendation_score * 100).toFixed(1)}%</span>
+              {[
+                { person: optimResult.phase1Person, label: optimResult.phase1Label, rows: optimResult.phase1Rows },
+                ...(optimResult.phase2Rows ? [{ person: optimResult.phase2Person!, label: optimResult.phase2Label!, rows: optimResult.phase2Rows }] : [])
+              ].map(({ person, label, rows }) => {
+                const currentCppAge = person === 'spouse' ? (scenario.spouse_cpp_start_age ?? 65) : scenario.cpp_start_age;
+                const currentOasAge = person === 'spouse' ? (scenario.spouse_oas_start_age ?? 65) : scenario.oas_start_age;
+                const phaseTitle = optimResult.isCouple ? `${label} — CPP/OAS Timing` : 'CPP/OAS Timing';
+                return (
+                  <div key={label} className="space-y-2">
+                    {optimResult.isCouple && (
+                      <h4 className="font-semibold text-gray-800 text-sm pt-1">{phaseTitle}</h4>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {rows.slice(0, 4).map((row, idx) => (
+                        <div key={`rec-${label}-${idx}`} className="border border-green-200 bg-green-50 rounded-lg p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-green-900">Top #{idx + 1}</p>
+                            <span className="text-xs font-medium text-green-700">Fit Score: {(row.recommendation_score * 100).toFixed(1)}%</span>
+                          </div>
+                          <p className="text-sm text-gray-800 mt-1">
+                            CPP age <span className="font-semibold">{row.cpp_start_age}</span>, OAS age <span className="font-semibold">{row.oas_start_age}</span>
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Ret. Withdrawals: {formatCurrency(row.retirement_withdrawals)} | Ret. Taxes: {formatCurrency(row.retirement_taxes_paid)}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                    <p className="text-sm text-gray-800 mt-1">
-                      CPP age <span className="font-semibold">{row.cpp_start_age}</span>, OAS age <span className="font-semibold">{row.oas_start_age}</span>
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      Retirement Withdrawals: {formatCurrency(row.retirement_withdrawals)} | Retirement Taxes: {formatCurrency(row.retirement_taxes_paid)}
-                    </p>
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <div style={{ height: TABLE_HEIGHT, overflowY: 'auto' }}>
+                          <table className="w-full text-sm border-collapse">
+                            <thead className="sticky top-0 z-10">
+                              <tr className="bg-gray-700 text-white">
+                                <th className="px-2 py-2 text-left font-medium text-xs">CPP Age</th>
+                                <th className="px-2 py-2 text-left font-medium text-xs">OAS Age</th>
+                                <th className="px-2 py-2 text-right font-medium text-xs">Ret. Withdrawals</th>
+                                <th className="px-2 py-2 text-right font-medium text-xs">Ret. Taxes Paid</th>
+                                <th className="px-2 py-2 text-right font-medium text-xs">Final Net Worth</th>
+                                <th className="px-2 py-2 text-right font-medium text-xs">
+                                  <button
+                                    onClick={() => setShowFitScoreInfo(true)}
+                                    className="flex items-center gap-1 text-white hover:text-blue-200 whitespace-nowrap ml-auto"
+                                  >
+                                    Fit Score <Info className="w-3 h-3" />
+                                  </button>
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((row, i) => {
+                                const isCurrent = row.cpp_start_age === currentCppAge && row.oas_start_age === currentOasAge;
+                                const isRecommended = i < 4;
+                                return (
+                                  <tr key={i} style={{ height: ROW_HEIGHT }}
+                                    className={`border-b border-gray-100 text-xs ${
+                                      isRecommended ? 'bg-green-50/60 font-medium'
+                                        : isCurrent ? 'bg-blue-50'
+                                        : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                                    }`}>
+                                    <td className="px-2 py-1.5">
+                                      <span className="font-semibold">{row.cpp_start_age}</span>
+                                      {isCurrent && <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded">Current</span>}
+                                      {isRecommended && <span className="ml-1 text-[10px] bg-green-100 text-green-700 px-1 py-0.5 rounded">Top</span>}
+                                    </td>
+                                    <td className="px-2 py-1.5">{row.oas_start_age}</td>
+                                    <td className="px-2 py-1.5 text-right text-blue-700">{formatCurrency(row.retirement_withdrawals)}</td>
+                                    <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(row.retirement_taxes_paid)}</td>
+                                    <td className={`px-2 py-1.5 text-right font-bold ${row.final_net_worth < 0 ? 'text-red-700' : 'text-gray-900'}`}>
+                                      {formatCurrency(row.final_net_worth)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right font-semibold text-green-700">
+                                      {(row.recommendation_score * 100).toFixed(1)}%
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                  <div style={{ height: TABLE_HEIGHT, overflowY: 'auto' }}>
-                    <table className="w-full text-sm border-collapse">
-                      <thead className="sticky top-0 z-10">
-                        <tr className="bg-gray-700 text-white">
-                          <th className="px-2 py-2 text-left font-medium text-xs">CPP Age</th>
-                          <th className="px-2 py-2 text-left font-medium text-xs">OAS Age</th>
-                          <th className="px-2 py-2 text-right font-medium text-xs">Ret. Withdrawals</th>
-                          <th className="px-2 py-2 text-right font-medium text-xs">Ret. Taxes Paid</th>
-                          <th className="px-2 py-2 text-right font-medium text-xs">Final Net Worth</th>
-                          <th className="px-2 py-2 text-right font-medium text-xs">
-                            <button
-                              onClick={() => setShowFitScoreInfo(true)}
-                              className="flex items-center gap-1 text-white hover:text-blue-200 whitespace-nowrap ml-auto"
-                            >
-                              Fit Score <Info className="w-3 h-3" />
-                            </button>
-                          </th>
-                        </tr>
-                      </thead>
-                  <tbody>
-                    {optimRows.map((row, i) => {
-                      const isCurrent = row.cpp_start_age === scenario.cpp_start_age && row.oas_start_age === scenario.oas_start_age;
-                      const isRecommended = i < 4;
-                      return (
-                        <tr key={i} style={{ height: ROW_HEIGHT }}
-                          className={`border-b border-gray-100 text-xs ${
-                            isRecommended
-                              ? 'bg-green-50/60 font-medium'
-                              : isCurrent
-                              ? 'bg-blue-50'
-                              : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                          }`}>
-                          <td className="px-2 py-1.5">
-                            <span className="font-semibold">{row.cpp_start_age}</span>
-                            {isCurrent && <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded">Current</span>}
-                            {isRecommended && <span className="ml-1 text-[10px] bg-green-100 text-green-700 px-1 py-0.5 rounded">Top</span>}
-                          </td>
-                          <td className="px-2 py-1.5">{row.oas_start_age}</td>
-                          <td className="px-2 py-1.5 text-right text-blue-700">{formatCurrency(row.retirement_withdrawals)}</td>
-                          <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(row.retirement_taxes_paid)}</td>
-                          <td className={`px-2 py-1.5 text-right font-bold ${row.final_net_worth < 0 ? 'text-red-700' : 'text-gray-900'}`}>
-                            {formatCurrency(row.final_net_worth)}
-                          </td>
-                          <td className="px-2 py-1.5 text-right font-semibold text-green-700">
-                            {(row.recommendation_score * 100).toFixed(1)}%
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
+                );
+              })}
             </>
           )}
         </div>

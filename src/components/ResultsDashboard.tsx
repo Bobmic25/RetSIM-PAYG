@@ -24,6 +24,51 @@ interface SavedResult {
   color: string;
 }
 
+type RelativeScoreCard = {
+  key: string;
+  finalBalance: number;
+  taxes: number;
+  retirementWithdrawals: number;
+  scoreBalance: number;
+};
+
+function addRelativeScores<T extends RelativeScoreCard>(cards: T[]): Array<T & { relativeScore: number; scoreDelta: number; rank: number }> {
+  if (cards.length === 0) return [];
+
+  const minBalance = Math.min(...cards.map(card => card.scoreBalance));
+  const maxBalance = Math.max(...cards.map(card => card.scoreBalance));
+  const minTaxes = Math.min(...cards.map(card => card.taxes));
+  const maxTaxes = Math.max(...cards.map(card => card.taxes));
+  const minWithdrawals = Math.min(...cards.map(card => card.retirementWithdrawals));
+  const maxWithdrawals = Math.max(...cards.map(card => card.retirementWithdrawals));
+
+  const balanceRange = maxBalance - minBalance;
+  const taxRange = maxTaxes - minTaxes;
+  const withdrawalRange = maxWithdrawals - minWithdrawals;
+
+  const scoredCards = cards.map(card => {
+    const balanceScore = balanceRange > 0 ? (card.scoreBalance - minBalance) / balanceRange : 1;
+    const taxScore = taxRange > 0 ? (maxTaxes - card.taxes) / taxRange : 1;
+    const withdrawalScore = withdrawalRange > 0 ? (card.retirementWithdrawals - minWithdrawals) / withdrawalRange : 1;
+    const relativeScore = Math.round((balanceScore * 0.35 + taxScore * 0.2 + withdrawalScore * 0.45) * 100);
+    return {
+      ...card,
+      relativeScore,
+    };
+  });
+
+  const averageScore = scoredCards.reduce((sum, card) => sum + card.relativeScore, 0) / scoredCards.length;
+  const ranks = [...scoredCards]
+    .sort((left, right) => right.relativeScore - left.relativeScore)
+    .map(card => card.key);
+
+  return scoredCards.map(card => ({
+    ...card,
+    scoreDelta: Math.round(card.relativeScore - averageScore),
+    rank: ranks.indexOf(card.key) + 1,
+  }));
+}
+
 const WITHDRAWAL_STRATEGIES: Array<{
   id: Scenario['withdrawal_strategy'];
   label: string;
@@ -35,7 +80,35 @@ const WITHDRAWAL_STRATEGIES: Array<{
   { id: 'tax_efficient', label: 'Tax Efficient', shortLabel: 'Tax Efficient', color: '#d97706' },
   { id: 'net_expenses_only', label: 'Net Expenses Only', shortLabel: 'Net Expenses', color: '#7c3aed' },
   { id: 'rrsp_meltdown', label: 'RRSP Meltdown', shortLabel: 'RRSP Meltdown', color: '#dc2626' },
+  { id: 'minimize_lifetime_tax', label: 'Minimize Lifetime Tax', shortLabel: 'Min. Tax', color: '#0891b2' },
 ];
+
+const WITHDRAWAL_STRATEGY_DETAILS: Record<Scenario['withdrawal_strategy'], { badge: string; description: string }> = {
+  maximize_spending: {
+    badge: 'Most spending',
+    description: 'Draws more from registered accounts to maximize controllable retirement spending while using lower tax brackets each year.',
+  },
+  maximize_estate: {
+    badge: 'Largest estate',
+    description: 'Preserves registered accounts as long as possible so more of the portfolio can continue compounding for the estate.',
+  },
+  tax_efficient: {
+    badge: 'Balanced',
+    description: 'Balances spending and taxes by smoothing taxable income and filling lower tax brackets more deliberately.',
+  },
+  net_expenses_only: {
+    badge: 'Conservative',
+    description: 'Withdraws only what is needed to cover after-tax planned expenses and avoids creating unnecessary taxable income.',
+  },
+  rrsp_meltdown: {
+    badge: 'Early RRSP draw',
+    description: 'Accelerates RRSP withdrawals earlier in retirement to reduce the risk of large RRIF-driven tax spikes later on.',
+  },
+  minimize_lifetime_tax: {
+    badge: 'Tax-optimized',
+    description: 'Uses a forward RRIF look-ahead to spread registered withdrawals across years and reduce lifetime tax and OAS clawback pressure.',
+  },
+};
 
 interface ResultsDashboardProps {
   projections: YearlyProjection[];
@@ -61,6 +134,8 @@ interface ResultsDashboardProps {
   onTaxDataRefreshed?: (data: LiveTaxData) => void;
   showAISuggestions?: boolean;
   onWithdrawalStrategyChange?: (strategy: Scenario['withdrawal_strategy']) => void;
+  mcIsStale?: boolean;
+  onRerunMonteCarlo?: () => void;
 }
 
 function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClick }: {
@@ -129,7 +204,9 @@ export default function ResultsDashboard({
   taxDataStatus,
   onTaxDataRefreshed,
   showAISuggestions = false,
-  onWithdrawalStrategyChange
+  onWithdrawalStrategyChange,
+  mcIsStale = false,
+  onRerunMonteCarlo
 }: ResultsDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'cashflow' | 'tax' | 'table' | 'verify'>('overview');
   const [showTodayDollars, setShowTodayDollars] = useState(true);
@@ -138,6 +215,7 @@ export default function ResultsDashboard({
   const [showCurrentPie, setShowCurrentPie] = useState(false);
   const [showFinalPie, setShowFinalPie] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [hoveredStrategyId, setHoveredStrategyId] = useState<Scenario['withdrawal_strategy'] | null>(null);
   // Used to notify ProjectionTable to re-run the CPP/OAS optimization after a suggestion is applied.
   const [optimTrigger, setOptimTrigger] = useState(0);
 
@@ -257,7 +335,7 @@ export default function ResultsDashboard({
   ].filter(s => s.value > 0);
 
   const strategySummaryCards = useMemo(() => {
-    return WITHDRAWAL_STRATEGIES.map(strategy => {
+    const cards = WITHDRAWAL_STRATEGIES.map(strategy => {
       const strategyProjections = strategy.id === scenario.withdrawal_strategy
         ? projections
         : runSingleProjection(
@@ -273,9 +351,14 @@ export default function ResultsDashboard({
             assetAllocations
           );
 
-      const metrics = calculateComparisonMetrics(strategyProjections);
       const strategyLast = strategyProjections[strategyProjections.length - 1];
       const strategyRetirementAge = strategyProjections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? scenario.retirement_age;
+      const retirementTaxBurden = strategyProjections
+        .filter(p => p.age >= strategyRetirementAge)
+        .reduce((sum, p) => sum + pv(p.total_tax, p.year - 1), 0);
+      const terminalTaxBurden = strategyLast?.terminal_tax != null
+        ? pv(strategyLast.terminal_tax, strategyLast.year - 1)
+        : 0;
       const retirementWithdrawals = showTodayDollars
         ? strategyProjections
             .filter(p => p.age >= strategyRetirementAge)
@@ -283,25 +366,31 @@ export default function ResultsDashboard({
         : strategyProjections
             .filter(p => p.age >= strategyRetirementAge)
             .reduce((sum, p) => sum + p.total_withdrawals, 0);
-      const taxes = showTodayDollars
-        ? strategyProjections.reduce((sum, p) => sum + pv(p.total_tax, p.year - 1), 0)
-        : metrics.lifetimeTaxes;
+      const taxes = retirementTaxBurden + terminalTaxBurden;
       const finalBalance = strategyLast
         ? (showTodayDollars ? pv(strategyLast.total_balance, strategyLast.year - 1) : strategyLast.total_balance)
         : 0;
+      const scoreBalance = strategyLast?.net_estate_value != null
+        ? pv(strategyLast.net_estate_value, strategyLast.year - 1)
+        : finalBalance;
 
       return {
         key: `strategy-${strategy.id}`,
+        strategyId: strategy.id,
         title: strategy.label,
-        badge: strategy.id === scenario.withdrawal_strategy ? 'Current' : 'Strategy',
+        badge: WITHDRAWAL_STRATEGY_DETAILS[strategy.id].badge,
+        description: WITHDRAWAL_STRATEGY_DETAILS[strategy.id].description,
         color: strategy.color,
         finalBalance,
         taxes,
         retirementWithdrawals,
+        scoreBalance,
         isActive: strategy.id === scenario.withdrawal_strategy,
         onClick: onWithdrawalStrategyChange ? () => onWithdrawalStrategyChange(strategy.id) : undefined,
       };
     });
+
+    return addRelativeScores(cards);
   }, [
     scenario,
     projections,
@@ -315,20 +404,27 @@ export default function ResultsDashboard({
     onWithdrawalStrategyChange,
   ]);
 
-  const comparisonCards = [
-    ...strategySummaryCards,
-    ...savedResults.map((r, i) => {
+  const selectedStrategySummary = strategySummaryCards.find(card => card.strategyId === scenario.withdrawal_strategy) ?? strategySummaryCards[0];
+  const previewStrategySummary = hoveredStrategyId
+    ? strategySummaryCards.find(card => card.strategyId === hoveredStrategyId) ?? selectedStrategySummary
+    : selectedStrategySummary;
+
+  const savedComparisonCards = addRelativeScores(savedResults.map((r, i) => {
       const last = r.projections[r.projections.length - 1];
       const finalBalance = showTodayDollars
         ? pv(last.total_balance, last.year - 1)
         : last.total_balance;
-      const tax = showTodayDollars
-        ? r.projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
-        : r.projections.reduce((s, p) => s + p.total_tax, 0);
       const savedRetirementAge = r.projections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? 0;
+      const tax = r.projections
+        .filter(p => p.age >= savedRetirementAge)
+        .reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0) +
+        (last.terminal_tax != null ? pv(last.terminal_tax, last.year - 1) : 0);
       const totalRetirementWd = showTodayDollars
         ? r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + pv(p.total_withdrawals, p.year - 1), 0)
         : r.projections.filter(p => p.age >= savedRetirementAge).reduce((s, p) => s + p.total_withdrawals, 0);
+      const scoreBalance = last.net_estate_value != null
+        ? pv(last.net_estate_value, last.year - 1)
+        : finalBalance;
       return {
         key: `saved-${i}`,
         title: r.name,
@@ -337,11 +433,11 @@ export default function ResultsDashboard({
         finalBalance,
         taxes: tax,
         retirementWithdrawals: totalRetirementWd,
+        scoreBalance,
         isActive: false,
         onClick: undefined,
       };
-    })
-  ];
+    }));
 
   const exportCSV = () => {
     const headers = ['Age', 'Salary', 'CPP', 'OAS', 'Inheritance', 'RRSP W/D', 'TFSA W/D', 'Non-Reg W/D',
@@ -436,6 +532,14 @@ export default function ResultsDashboard({
             <Download className="w-4 h-4" />
             Export CSV
           </button>
+          {scenario.return_type === 'monte_carlo' && onRerunMonteCarlo && (
+            <button
+              onClick={onRerunMonteCarlo}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              Re-Run Simulation
+            </button>
+          )}
         </div>
       </div>
 
@@ -498,6 +602,25 @@ export default function ResultsDashboard({
           color="bg-blue-500"
         />
       </div>
+
+      {mcIsStale && monteCarloResult && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-amber-900">
+              The Monte Carlo bands shown are from a previous run. The deterministic projection has been updated for the new strategy. Click <strong>Re-Run Simulation</strong> to regenerate the MC bands with the current settings.
+            </p>
+          </div>
+          {onRerunMonteCarlo && (
+            <button
+              onClick={onRerunMonteCarlo}
+              className="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 whitespace-nowrap"
+            >
+              Re-Run Simulation
+            </button>
+          )}
+        </div>
+      )}
 
       {monteCarloResult && (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -568,6 +691,7 @@ export default function ResultsDashboard({
                 <option value="tax_efficient">Tax Efficient</option>
                 <option value="net_expenses_only">Net Expenses Only</option>
                 <option value="rrsp_meltdown">RRSP Meltdown</option>
+                <option value="minimize_lifetime_tax">Minimize Lifetime Tax</option>
               </select>
             </div>
             <div className="flex items-center gap-2 pl-4 border-l border-gray-300">
@@ -641,30 +765,70 @@ export default function ResultsDashboard({
               <div>
                 <h3 className="font-semibold text-gray-900">Withdrawal Strategy Summaries</h3>
                 <p className="text-sm text-gray-500">
-                  The first row shows all five withdrawal strategies. Saved comparison snapshots continue on the next row automatically.
+                  The first row shows all six withdrawal strategies. Saved comparison snapshots continue on the next row automatically.
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-              {comparisonCards.map(card => (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+              {strategySummaryCards.map(card => {
+                const isHovered = hoveredStrategyId === card.strategyId;
+                const isSelected = card.isActive;
+                const isDimmed = !isSelected && hoveredStrategyId !== null && !isHovered;
+                const scale = isSelected ? 1.045 : isHovered ? 1.018 : hoveredStrategyId !== null ? 0.975 : 0.985;
+                const translateY = isSelected ? -5 : isHovered ? -8 : 0;
+
+                return (
                 <button
                   key={card.key}
                   type="button"
                   onClick={card.onClick}
+                  onMouseEnter={() => setHoveredStrategyId(card.strategyId)}
+                  onMouseLeave={() => setHoveredStrategyId(null)}
+                  onFocus={() => setHoveredStrategyId(card.strategyId)}
+                  onBlur={() => setHoveredStrategyId(null)}
                   disabled={!card.onClick}
-                  className={`rounded-xl border-2 bg-white p-4 text-left transition-colors ${card.onClick ? 'hover:bg-gray-50' : ''} ${card.isActive ? 'shadow-sm' : ''} ${!card.onClick ? 'cursor-default' : ''}`}
-                  style={{ borderColor: card.color }}
+                  className={`rounded-2xl border-2 p-3 text-left transition-all duration-200 ease-out ${!card.onClick ? 'cursor-default' : ''}`}
+                  style={{
+                    borderColor: card.color,
+                    backgroundColor: isSelected ? `${card.color}12` : isHovered ? `${card.color}08` : '#ffffff',
+                    boxShadow: isSelected
+                      ? `0 14px 32px ${card.color}22, 0 3px 8px ${card.color}16`
+                      : isHovered
+                        ? `0 10px 24px ${card.color}18, 0 3px 8px rgba(0,0,0,0.08)`
+                        : 'none',
+                    transform: `translateY(${translateY}px) scale(${scale})`,
+                    opacity: isDimmed ? 0.48 : 1,
+                  }}
                 >
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
                     <div>
-                      <p className="font-semibold text-gray-900 leading-5">{card.title}</p>
-                      <span className="inline-flex mt-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
+                      <p className="font-semibold text-sm text-gray-900 leading-5">{card.title}</p>
+                      <span
+                        className="inline-flex mt-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors duration-200"
+                        style={{
+                          backgroundColor: isSelected || isHovered ? `${card.color}18` : '#f3f4f6',
+                          color: isSelected || isHovered ? card.color : '#4b5563',
+                        }}
+                      >
                         {card.badge}
                       </span>
                     </div>
-                    <span className="mt-1 h-3 w-3 rounded-full" style={{ backgroundColor: card.color }} />
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold transition-all duration-200"
+                        style={{
+                          backgroundColor: `${card.color}18`,
+                          color: card.color,
+                        }}
+                      >
+                        Score {card.relativeScore}
+                      </span>
+                      <span className={`text-[10px] font-medium ${card.scoreDelta >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {card.scoreDelta >= 0 ? '+' : ''}{card.scoreDelta} vs avg
+                      </span>
+                    </div>
                   </div>
-                  <div className="space-y-1.5 text-sm">
+                  <div className="space-y-1 text-sm">
                     <div className="flex justify-between gap-2">
                       <span className="text-gray-600">Final Balance</span>
                       <span className={`font-semibold ${card.finalBalance < 0 ? 'text-red-600' : 'text-green-700'}`}>
@@ -672,7 +836,7 @@ export default function ResultsDashboard({
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-gray-600">Ret. Tax</span>
+                      <span className="text-gray-600">All-In Tax</span>
                       <span className="font-medium text-red-600">{formatCurrency(card.taxes)}</span>
                     </div>
                     <div className="flex justify-between gap-2">
@@ -681,8 +845,93 @@ export default function ResultsDashboard({
                     </div>
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
+
+            {previewStrategySummary && (
+              <div
+                className="mt-4 rounded-2xl border px-4 py-4 transition-all duration-200"
+                style={{
+                  borderColor: `${previewStrategySummary.color}55`,
+                  backgroundColor: `${previewStrategySummary.color}0d`,
+                  boxShadow: `0 10px 24px ${previewStrategySummary.color}14`,
+                }}
+              >
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500">
+                    {hoveredStrategyId && hoveredStrategyId !== scenario.withdrawal_strategy ? 'Strategy preview' : 'Selected strategy'}
+                  </p>
+                  <span
+                    className="rounded-full px-2 py-1 text-[11px] font-semibold"
+                    style={{
+                      backgroundColor: `${previewStrategySummary.color}20`,
+                      color: previewStrategySummary.color,
+                    }}
+                  >
+                    {previewStrategySummary.badge}
+                  </span>
+                </div>
+                <h4 className="text-sm font-semibold mb-1" style={{ color: previewStrategySummary.color }}>
+                  {previewStrategySummary.title}
+                </h4>
+                <p className="text-sm leading-relaxed text-gray-700">{previewStrategySummary.description}</p>
+                <p className="mt-2 text-xs font-medium" style={{ color: previewStrategySummary.color }}>
+                  Relative Score {previewStrategySummary.relativeScore}/100, ranked #{previewStrategySummary.rank} of {strategySummaryCards.length}.
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-gray-600">
+                  Relative Score compares higher retirement withdrawals and after-tax ending value against lower All-In Tax. All-In Tax includes projected taxes paid during retirement plus terminal tax in the final year, which estimates the tax due on remaining registered balances and taxable gains left to the estate.
+                </p>
+              </div>
+            )}
+
+            {savedComparisonCards.length > 0 && (
+              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+                {savedComparisonCards.map(card => (
+                  <div
+                    key={card.key}
+                    className="rounded-xl border-2 bg-white p-3 text-left"
+                    style={{ borderColor: card.color }}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900 leading-5">{card.title}</p>
+                        <span className="inline-flex mt-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                          {card.badge}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          style={{ backgroundColor: `${card.color}18`, color: card.color }}
+                        >
+                          Score {card.relativeScore}
+                        </span>
+                        <span className={`text-[10px] font-medium ${card.scoreDelta >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {card.scoreDelta >= 0 ? '+' : ''}{card.scoreDelta} vs avg
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-600">Final Balance</span>
+                        <span className={`font-semibold ${card.finalBalance < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                          {formatCurrency(card.finalBalance)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-600">All-In Tax</span>
+                        <span className="font-medium text-red-600">{formatCurrency(card.taxes)}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-600">Ret. Withdrawals</span>
+                        <span className="font-medium text-blue-700">{formatCurrency(card.retirementWithdrawals)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

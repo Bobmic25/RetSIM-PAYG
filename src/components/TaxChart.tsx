@@ -23,6 +23,12 @@ export default function TaxChart({ data, showToday, inflationRate = 2.5 }: TaxCh
     };
   });
 
+  const visibleBars = {
+    federal: chartData.some((row) => row.Federal > 0),
+    provincial: chartData.some((row) => row.Provincial > 0),
+    cppEi: chartData.some((row) => row['CPP/EI'] > 0),
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <h3 className="text-xl font-bold text-gray-900 mb-4">Annual Tax Liability</h3>
@@ -42,9 +48,9 @@ export default function TaxChart({ data, showToday, inflationRate = 2.5 }: TaxCh
             labelFormatter={(label) => `Age ${label}`}
           />
           <Legend />
-          <Bar dataKey="Federal" stackId="a" fill="#dc2626" />
-          <Bar dataKey="Provincial" stackId="a" fill="#f97316" />
-          <Bar dataKey="CPP/EI" stackId="a" fill="#eab308" />
+          {visibleBars.federal && <Bar dataKey="Federal" stackId="a" fill="#dc2626" />}
+          {visibleBars.provincial && <Bar dataKey="Provincial" stackId="a" fill="#f97316" />}
+          {visibleBars.cppEi && <Bar dataKey="CPP/EI" stackId="a" fill="#eab308" />}
         </BarChart>
       </ResponsiveContainer>
     </div>

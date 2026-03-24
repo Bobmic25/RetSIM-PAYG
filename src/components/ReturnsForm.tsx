@@ -82,6 +82,104 @@ function MonteCarloInfoModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+const STRATEGIES = [
+  {
+    id: 'maximize_spending' as const,
+    label: 'Maximize Life Spending',
+    badge: 'Most spending',
+    badgeColor: '#2563eb',
+    description: 'Draws maximum from registered accounts to maximize controllable spending. Fills lower tax brackets and enforces the configured RRSP exhaustion target each year.',
+  },
+  {
+    id: 'maximize_estate' as const,
+    label: 'Maximize Estate Value',
+    badge: 'Largest estate',
+    badgeColor: '#059669',
+    description: 'Preserves registered accounts as long as possible. Prioritizes non-registered then TFSA withdrawals first, letting the RRSP compound to maximize the estate.',
+  },
+  {
+    id: 'tax_efficient' as const,
+    label: 'Tax Efficient',
+    badge: 'Balanced',
+    badgeColor: '#d97706',
+    description: 'Balances spending and tax by filling the lowest federal bracket annually. Good for moderate RRSP balances where income smoothing matters most.',
+  },
+  {
+    id: 'net_expenses_only' as const,
+    label: 'Net Expenses Only',
+    badge: 'Conservative',
+    badgeColor: '#7c3aed',
+    description: 'Withdraws exactly what is needed to cover after-tax planned expenses — no more. Avoids unnecessary taxable income and bracket-filling while still honouring the RRSP exhaustion schedule.',
+  },
+  {
+    id: 'rrsp_meltdown' as const,
+    label: 'RRSP Meltdown',
+    badge: 'Early RRSP draw',
+    badgeColor: '#dc2626',
+    description: 'Follows a smooth annuity-style schedule to deplete the RRSP before the end of plan. Ideal when you are concerned about large forced RRIF income creating tax spikes in your 70s and 80s.',
+  },
+  {
+    id: 'minimize_lifetime_tax' as const,
+    label: 'Minimize Lifetime Tax',
+    badge: 'Tax-optimized',
+    badgeColor: '#0891b2',
+    description: 'Proactively draws from RRSP when a forward look-ahead detects future RRIF income that would trigger OAS clawbacks. Spreads registered income across years to reduce lifetime tax and clawback pressure.',
+  },
+];
+
+function StrategyPicker({
+  selected,
+  onChange,
+}: {
+  selected: string;
+  onChange: (id: typeof STRATEGIES[number]['id']) => void;
+}) {
+  const selectedStrategy = STRATEGIES.find((strategy) => strategy.id === selected) ?? STRATEGIES[0];
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Withdrawal Strategy</label>
+      <select
+        value={selected}
+        onChange={(event) => onChange(event.target.value as typeof STRATEGIES[number]['id'])}
+        className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+      >
+        {STRATEGIES.map((strat) => (
+          <option key={strat.id} value={strat.id}>
+            {strat.label}
+          </option>
+        ))}
+      </select>
+
+      <div
+        className="mt-4 rounded-2xl border px-4 py-4 transition-all duration-200"
+        style={{
+          borderColor: selectedStrategy.badgeColor + '55',
+          backgroundColor: selectedStrategy.badgeColor + '0d',
+          boxShadow: `0 8px 24px ${selectedStrategy.badgeColor}14`,
+        }}
+      >
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Selected strategy</p>
+          <span
+            className="text-[11px] font-semibold px-2 py-1 rounded-full"
+            style={{
+              backgroundColor: selectedStrategy.badgeColor + '20',
+              color: selectedStrategy.badgeColor,
+            }}
+          >
+            {selectedStrategy.badge}
+          </span>
+        </div>
+        <h4 className="text-sm font-semibold mb-1" style={{ color: selectedStrategy.badgeColor }}>
+          {selectedStrategy.label}
+        </h4>
+        <p className="text-sm leading-relaxed text-gray-700">{selectedStrategy.description}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
   const currentYear = new Date().getFullYear();
   const [showMonteCarloInfo, setShowMonteCarloInfo] = useState(false);
@@ -234,23 +332,10 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
           </>
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Withdrawal Strategy</label>
-          <select value={scenario.withdrawal_strategy} onChange={e => onChange({ withdrawal_strategy: e.target.value as any })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-            <option value="maximize_spending">Maximize Life Spending</option>
-            <option value="maximize_estate">Maximize Estate Value</option>
-            <option value="tax_efficient">Tax Efficient</option>
-            <option value="net_expenses_only">Satisfy Net Expenses Only</option>
-            <option value="rrsp_meltdown">RRSP Meltdown (Early Withdrawal)</option>
-          </select>
-          {scenario.withdrawal_strategy === 'net_expenses_only' && (
-            <p className="text-xs text-gray-500 mt-1">Covers net expenses without bracket-filling, but still enforces the RRSP exhaustion target age when forced RRSP drawdown is required.</p>
-          )}
-          {scenario.withdrawal_strategy === 'rrsp_meltdown' && (
-            <p className="text-xs text-gray-500 mt-1">Prioritizes smoother early RRSP withdrawal and targets full RRSP exhaustion before the end of plan. Uses Non-Registered as secondary and TFSA as last resort.</p>
-          )}
-        </div>
+        <StrategyPicker
+          selected={scenario.withdrawal_strategy}
+          onChange={(id) => onChange({ withdrawal_strategy: id })}
+        />
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -266,13 +351,11 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Example: `2` means RRSP is targeted to be fully exhausted by two years before the plan end age.
+            Example: `2` means the engine targets RRSP depletion by two years before the plan end age. In the projection engine, this becomes an inflation-adjusted annual RRSP withdrawal floor that is used to keep the plan on track to exhaust RRSP assets by the target age.
           </p>
-          {scenario.withdrawal_strategy === 'net_expenses_only' && (
-            <p className="text-xs text-amber-700 mt-1">
-              Note: Net Expenses Only still follows this RRSP exhaustion target. Any forced excess withdrawal is re-invested to non-registered savings.
-            </p>
-          )}
+          <p className="text-xs text-gray-500 mt-1">
+            Current implementation: this exhaustion-floor rule is applied for Maximize Life Spending, Tax Efficient, and Maximize Estate Value. Net Expenses Only, RRSP Meltdown, and Minimize Lifetime Tax use different withdrawal logic.
+          </p>
         </div>
       </div>
 

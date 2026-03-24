@@ -28,6 +28,7 @@ export default function PDFExport({
     const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
     const firstRetirementYear = projections.find(p => p.total_withdrawals > 0 || p.cpp > 0);
     const successRate = monteCarloResult ? `${monteCarloResult.success_rate.toFixed(1)}%` : 'N/A';
+    const spouseRetirementAge = scenario.spouse_retirement_age ?? scenario.retirement_age;
     const pv = (amount: number, yearIndex: number) => presentValue(amount, yearIndex, inflationRate);
     const lastNetWorthPV = pv(lastYear.total_balance, lastYear.year - 1);
     const totalTaxPV = projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0);
@@ -197,7 +198,7 @@ export default function PDFExport({
     </div>
     <div class="metric">
       <div class="metric-label">Current Age / Retirement Age</div>
-      <div class="metric-value">${scenario.current_age} / ${scenario.retirement_age}</div>
+      <div class="metric-value">${scenario.current_age} / ${scenario.retirement_age}${scenario.profile_type === 'couple' ? ` / spouse ${spouseRetirementAge}` : ''}</div>
     </div>
     <div class="metric">
       <div class="metric-label">Plan Duration</div>
@@ -218,7 +219,7 @@ export default function PDFExport({
   <table>
     <tr><th>Parameter</th><th>Value</th></tr>
     <tr><td style="padding:4px 6px">Current Age</td><td style="padding:4px 6px">${scenario.current_age}</td></tr>
-    <tr><td style="padding:4px 6px">Retirement Age</td><td style="padding:4px 6px">${scenario.retirement_age}</td></tr>
+    <tr><td style="padding:4px 6px">Retirement Age</td><td style="padding:4px 6px">${scenario.retirement_age}${scenario.profile_type === 'couple' ? ` (spouse ${spouseRetirementAge})` : ''}</td></tr>
     <tr><td style="padding:4px 6px">Plan Duration</td><td style="padding:4px 6px">${scenario.plan_duration} years (to age ${scenario.current_age + (scenario.retirement_age - scenario.current_age) + scenario.plan_duration})</td></tr>
     <tr><td style="padding:4px 6px">Expected Return</td><td style="padding:4px 6px">${scenario.expected_return}% (${scenario.return_type})</td></tr>
     <tr><td style="padding:4px 6px">Inflation Rate</td><td style="padding:4px 6px">${scenario.inflation_rate}%</td></tr>

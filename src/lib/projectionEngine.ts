@@ -120,7 +120,8 @@ function getIncomeForAge(
 }
 
 function calculateContributions(
-  age: number,
+  primaryAge: number,
+  spouseAge: number,
   accounts: SavingsAccount[],
   yearFromStart: number,
   inflationRate: number
@@ -140,7 +141,8 @@ function calculateContributions(
     salary_funded_after_tax_spouse: 0,
   };
   accounts.forEach(account => {
-    if (age <= account.contribution_end_age) {
+    const personAge = account.person === 'spouse' ? spouseAge : primaryAge;
+    if (personAge <= account.contribution_end_age) {
       const annual = account.monthly_contribution * 12;
       const inflationLinked = account.inflation_linked !== false;
       const contribution = inflationLinked
@@ -318,6 +320,7 @@ function bracketMatchRRSPWithdrawals(
 
 interface WithdrawalResult {
   tfsa: number;
+  fhsa: number;
   rrsp: number;
   rrsp_spouse: number;
   non_reg_primary: number;
@@ -375,6 +378,7 @@ function calculateOptimizedWithdrawals(
   let remaining = needed;
   const result: WithdrawalResult = {
     tfsa: 0,
+    fhsa: 0,
     rrsp: 0,
     rrsp_spouse: 0,
     non_reg_primary: 0,
@@ -409,6 +413,7 @@ function calculateOptimizedWithdrawals(
 
   // RRSP MELTDOWN STRATEGY: Prioritize early RRSP withdrawal based on life expectancy
   const isMeltdownStrategy = withdrawalStrategy === 'rrsp_meltdown';
+  const isMinimizeLifetimeTax = withdrawalStrategy === 'minimize_lifetime_tax';
   if (isMeltdownStrategy && isRetired && expectedReturn != null) {
     const targetExhaustAge =
       (planEndAge ?? (currentRetirementAge ?? age) + 30) - Math.max(1, rrspExhaustYearsBeforeEnd ?? 2);
@@ -549,6 +554,7 @@ function calculateOptimizedWithdrawals(
 
   if (remaining > 0 && balances.fhsa > 0) {
     const fromFHSA = Math.min(remaining, balances.fhsa);
+    result.fhsa += fromFHSA;
     balances.fhsa -= fromFHSA;
     remaining -= fromFHSA;
   }
@@ -594,6 +600,56 @@ function calculateOptimizedWithdrawals(
     }
   }
 
+  // MINIMIZE LIFETIME TAX: Proactive RRSP draw to reduce future RRIF clawback pressure.
+  // Draws RRSP up to OAS clawback threshold (or first bracket top, whichever is lower)
+  // when forward RRIF analysis shows future clawback risk.
+  if (isMinimizeLifetimeTax && isRetired && !gisBlocksRRSP && (balances.rrsp > 0 || balances.rrsp_spouse > 0)) {
+    const alreadyWithdrawn = result.rrsp + result.rrsp_spouse;
+    const currentTaxableWithRrsp = currentTaxableIncome + alreadyWithdrawn + result.cap_gain_primary;
+    const oasRoom = Math.max(0, oasThreshold - currentTaxableWithRrsp);
+    const bracketRoom = Math.max(0, firstBracketTop - currentTaxableWithRrsp);
+    const maxRoom = Math.min(bracketRoom, oasRoom);
+
+    if (maxRoom > 0) {
+      const futureBalance = balances.rrsp + balances.rrsp_spouse;
+      const fwdRRIF = computeForwardRRIFIncome(Math.max(age + 1, 72), futureBalance, expectedReturn ?? 5, 5);
+      // Proactively draw if: future RRIF alone risks OAS clawback, or already past RRIF onset,
+      // or pre-RRIF but RRSP large enough that smoothing early helps
+      const futureRisk = fwdRRIF > 0 && (currentTaxableIncome + fwdRRIF > oasThreshold * 0.9);
+      const postRrif = age >= 72;
+      const largePreRrif = age >= 60 && futureBalance > 200000;
+
+      if (futureRisk || postRrif || largePreRrif) {
+        const targetDraw = Math.min(maxRoom, futureBalance);
+        const additionalNeeded = Math.max(0, targetDraw - alreadyWithdrawn);
+
+        if (additionalNeeded > 0) {
+          if (isCouple && balances.rrsp_spouse > 0 && spouseIncome !== undefined) {
+            const matched = bracketMatchRRSPWithdrawals(
+              currentTaxableIncome + result.rrsp, spouseIncome,
+              balances.rrsp, balances.rrsp_spouse, additionalNeeded,
+              province, year, inflationRate
+            );
+            const fp = Math.min(matched.primaryRRSP, balances.rrsp);
+            const fs = Math.min(matched.spouseRRSP, balances.rrsp_spouse);
+            result.rrsp += fp;
+            result.rrsp_spouse += fs;
+            balances.rrsp -= fp;
+            balances.rrsp_spouse -= fs;
+          } else if (balances.rrsp > 0) {
+            const fp = Math.min(additionalNeeded, balances.rrsp);
+            result.rrsp += fp;
+            balances.rrsp -= fp;
+          } else if (balances.rrsp_spouse > 0) {
+            const fs = Math.min(additionalNeeded, balances.rrsp_spouse);
+            result.rrsp_spouse += fs;
+            balances.rrsp_spouse -= fs;
+          }
+        }
+      }
+    }
+  }
+
   const isNetExpensesOnly = withdrawalStrategy === 'net_expenses_only';
 
   // Bracket filling logic - only for maximize_spending/tax_efficient, skipped for net_expenses_only
@@ -614,13 +670,12 @@ function calculateOptimizedWithdrawals(
     }
   }
 
-  // RRSP exhaustion logic - apply based on strategy, including net_expenses_only.
+  // RRSP exhaustion logic - apply based on strategy, excluding net_expenses_only.
   const shouldApplyExhaustion = !disableForcedWithdrawals &&
     (
       withdrawalStrategy === 'maximize_spending' ||
       withdrawalStrategy === 'tax_efficient' ||
       withdrawalStrategy === 'maximize_estate' ||
-      withdrawalStrategy === 'net_expenses_only' ||
       withdrawalStrategy === undefined
     );
 
@@ -660,7 +715,7 @@ function calculateOptimizedWithdrawals(
     }
   }
 
-  result.total = result.tfsa + result.rrsp + result.rrsp_spouse + result.non_reg_primary + result.non_reg_spouse;
+  result.total = result.tfsa + result.fhsa + result.rrsp + result.rrsp_spouse + result.non_reg_primary + result.non_reg_spouse;
   return result;
 }
 
@@ -866,6 +921,32 @@ function computeRrspMeltdownSchedule(
   return Math.max(0, annuityTarget);
 }
 
+function computeForwardRRIFIncome(
+  fromAge: number,
+  rrspBalance: number,
+  expectedReturn: number,
+  years: number
+): number {
+  if (rrspBalance <= 0) return 0;
+  let balance = rrspBalance;
+  let totalIncome = 0;
+  const r = expectedReturn / 100;
+  for (let i = 0; i < years; i++) {
+    const currentAge = fromAge + i;
+    if (currentAge < 72) continue;
+    const rrifRate = RRIF_MINIMUM_RATES[Math.min(currentAge, 95)] ?? 0.2;
+    const income = balance * rrifRate;
+    totalIncome += income;
+    balance = Math.max(0, (balance - income) * (1 + r));
+    if (balance <= 0) break;
+  }
+  return years > 0 ? totalIncome / years : 0;
+}
+
+function getSpouseRetirementAge(scenario: Scenario): number {
+  return scenario.spouse_retirement_age ?? scenario.retirement_age;
+}
+
 export function runSingleProjection(
   scenario: Scenario,
   incomeSources: IncomeSource[],
@@ -884,6 +965,7 @@ export function runSingleProjection(
 
   // Apply overrides
   const effectiveRetirementAge = overrides?.retirementAge ?? scenario.retirement_age;
+  const spouseRetirementAge = getSpouseRetirementAge(scenario);
   const expenseMultiplier = overrides?.expenseMultiplier ?? 1.0;
   const disableForcedWithdrawals = overrides?.disableForcedWithdrawals ?? false;
   const disableBracketFilling = overrides?.disableBracketFilling ?? false;
@@ -932,8 +1014,9 @@ export function runSingleProjection(
       const annualReturn = (effectiveReturnSequence?.[y] ?? netExpectedReturn) / 100;
       bal *= (1 + annualReturn);
       const age = scenario.current_age + y;
+      const spouseAge = scenario.spouse_age != null ? scenario.spouse_age + y : age;
       const contribThisYear = savingsAccounts
-        .filter(a => a.account_type === 'rrsp' && age <= a.contribution_end_age)
+        .filter(a => a.account_type === 'rrsp' && ((a.person === 'spouse' ? spouseAge : age) <= a.contribution_end_age))
         .reduce((s, a) => s + a.monthly_contribution * 12, 0);
       bal += contribThisYear;
     }
@@ -960,22 +1043,22 @@ export function runSingleProjection(
 
   for (let year = 0; year < totalYears; year++) {
     const age = scenario.current_age + year;
+    const spouseAge = isCouple && scenario.spouse_age != null ? scenario.spouse_age + year : age;
     const effectiveInflation = inflationSequence ? inflationSequence[year] : scenario.inflation_rate;
 
     const primarySalary = getIncomeForAge(
       age, incomeSources.filter(s => s.person === 'primary'), year, effectiveInflation
     );
     const spouseSalary = isCouple
-      ? getIncomeForAge(age, incomeSources.filter(s => s.person === 'spouse'), year, effectiveInflation)
+      ? getIncomeForAge(spouseAge, incomeSources.filter(s => s.person === 'spouse'), year, effectiveInflation)
       : 0;
     const salary = primarySalary + spouseSalary;
 
     const cpp = age >= cppStartAge ? adjustForInflation(cppAmount, year, effectiveInflation) : 0;
     const oasBase = age >= oasStartAge ? adjustForInflation(applyOAS75Bump(oasAmount, age), year, effectiveInflation) : 0;
     const oas = oasBase;
-    const spouseAge = isCouple && scenario.spouse_age != null ? scenario.spouse_age + year : age;
-    const spouseCpp = (isCouple && age >= spouseCppStartAge) ? adjustForInflation(spouseCppAmount, year, effectiveInflation) : 0;
-    const spouseOas = (isCouple && age >= spouseOasStartAge) ? adjustForInflation(applyOAS75Bump(spouseOasAmount, spouseAge), year, effectiveInflation) : 0;
+    const spouseCpp = (isCouple && spouseAge >= spouseCppStartAge) ? adjustForInflation(spouseCppAmount, year, effectiveInflation) : 0;
+    const spouseOas = (isCouple && spouseAge >= spouseOasStartAge) ? adjustForInflation(applyOAS75Bump(spouseOasAmount, spouseAge), year, effectiveInflation) : 0;
 
     const totalCpp = cpp + spouseCpp;
     const totalOas = oas + spouseOas;
@@ -985,8 +1068,8 @@ export function runSingleProjection(
       ? (scenario.db_pension_indexed ? adjustForInflation(scenario.db_pension_amount, year, effectiveInflation) : scenario.db_pension_amount)
       : 0;
 
-    const spouseDbPensionStartAge = scenario.spouse_db_pension_start_age ?? scenario.retirement_age;
-    const spouseDbPensionBase = isCouple && scenario.spouse_has_db_pension && scenario.spouse_db_pension_amount && age >= spouseDbPensionStartAge
+    const spouseDbPensionStartAge = scenario.spouse_db_pension_start_age ?? spouseRetirementAge;
+    const spouseDbPensionBase = isCouple && scenario.spouse_has_db_pension && scenario.spouse_db_pension_amount && spouseAge >= spouseDbPensionStartAge
       ? (scenario.spouse_db_pension_indexed ? adjustForInflation(scenario.spouse_db_pension_amount, year, effectiveInflation) : scenario.spouse_db_pension_amount)
       : 0;
 
@@ -1003,7 +1086,7 @@ export function runSingleProjection(
     const nonRegGainEstimate = totalNonRegForGis > 0 && totalNonRegForGis > totalNonRegAcbForGis
       ? calcTieredCapitalGainInclusion((totalNonRegForGis - totalNonRegAcbForGis) * 0.04, year, effectiveInflation)
       : 0;
-    const contributions = calculateContributions(age, savingsAccounts, year, effectiveInflation);
+    const contributions = calculateContributions(age, spouseAge, savingsAccounts, year, effectiveInflation);
     const primaryRrspSalaryDeduction = contributions.rrsp_salary_deduction_primary;
     const spouseRrspSalaryDeduction = contributions.rrsp_salary_deduction_spouse;
     const totalRrspSalaryDeduction = primaryRrspSalaryDeduction + spouseRrspSalaryDeduction;
@@ -1046,7 +1129,6 @@ export function runSingleProjection(
     const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions;
 
     const guaranteedIncome = salary + totalCpp + totalOas + totalDbPension + gisAmount + inheritance;
-  const shortfall = Math.max(0, totalCashNeed - guaranteedIncome);
 
     const baseTaxableIncome = primaryTaxableSalary + cpp + oas + dbPensionBase;
 
@@ -1058,24 +1140,158 @@ export function runSingleProjection(
     const preWithdrawalNonRegSpouse = balances.non_reg_spouse;
 
     const isRetired = age >= effectiveRetirementAge;
-    const withdrawals = calculateOptimizedWithdrawals(
-      balances, shortfall, age, baseTaxableIncome,
-      scenario.province, year, effectiveInflation, oas,
-      isCouple, spouseTaxableSalary + spouseCpp + spouseOas + spouseDbPensionBase,
-      gisResult,
-      rrspExhaustionAnnualBase,
-      isRetired,
-      retirementYearIndex,
-      effectiveWithdrawalStrategy,
-      disableForcedWithdrawals,
-      disableBracketFilling,
-      scenario.life_expectancy,
-      scenario.spouse_life_expectancy,
-      scenario.retirement_age,
-      retirementReturnAssumption,
-      planEndAge,
-      rrspExhaustYearsBeforeEnd
-    );
+    const calculateTaxTotals = (candidateWithdrawals: WithdrawalResult) => {
+      const candidatePrimaryTaxableIncome =
+        primaryTaxableSalary + cpp + oas + dbPensionBase + candidateWithdrawals.rrsp + candidateWithdrawals.cap_gain_primary;
+      const candidateSpouseTaxableIncome =
+        spouseTaxableSalary + spouseCpp + spouseOas + spouseDbPensionBase + candidateWithdrawals.rrsp_spouse + candidateWithdrawals.cap_gain_spouse;
+      const candidatePensionIncomeForCredit = cpp + candidateWithdrawals.rrsp + dbPensionBase;
+
+      if (isCouple && age >= 65) {
+        const primaryCalc = calculateTotalTax(
+          candidatePrimaryTaxableIncome,
+          scenario.province,
+          primarySalary,
+          oas,
+          year,
+          effectiveInflation,
+          undefined,
+          age,
+          candidatePensionIncomeForCredit
+        );
+        const spousePensionForCredit = spouseCpp + candidateWithdrawals.rrsp_spouse + spouseDbPensionBase;
+        const spouseCalc = calculateTotalTax(
+          candidateSpouseTaxableIncome,
+          scenario.province,
+          spouseSalary,
+          spouseOas,
+          year,
+          effectiveInflation,
+          undefined,
+          spouseAge,
+          spousePensionForCredit
+        );
+
+        return {
+          federalTax: primaryCalc.federal + spouseCalc.federal,
+          provincialTax: primaryCalc.provincial + spouseCalc.provincial,
+          cppEiOasTax:
+            primaryCalc.cpp + primaryCalc.ei + primaryCalc.oasClawback +
+            spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback,
+          totalTax: primaryCalc.federal + spouseCalc.federal + primaryCalc.provincial + spouseCalc.provincial +
+            primaryCalc.cpp + primaryCalc.ei + primaryCalc.oasClawback + spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback,
+        };
+      }
+
+      const primaryCalc = calculateTotalTax(
+        candidatePrimaryTaxableIncome,
+        scenario.province,
+        primarySalary,
+        oas,
+        year,
+        effectiveInflation,
+        undefined,
+        age,
+        candidatePensionIncomeForCredit
+      );
+
+      let federalTax = primaryCalc.federal;
+      let provincialTax = primaryCalc.provincial;
+      let cppEiOasTax = primaryCalc.cpp + primaryCalc.ei + primaryCalc.oasClawback;
+      let totalTax = primaryCalc.total;
+
+      if (isCouple) {
+        const spousePensionForCredit = spouseCpp + spouseDbPensionBase;
+        const spouseCalc = calculateTotalTax(
+          candidateSpouseTaxableIncome,
+          scenario.province,
+          spouseSalary,
+          spouseOas,
+          year,
+          effectiveInflation,
+          undefined,
+          spouseAge,
+          spousePensionForCredit
+        );
+        federalTax += spouseCalc.federal;
+        provincialTax += spouseCalc.provincial;
+        cppEiOasTax += spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback;
+        totalTax += spouseCalc.total;
+      }
+
+      return { federalTax, provincialTax, cppEiOasTax, totalTax };
+    };
+
+    const balancesBeforeWithdrawals: AccountBalances = { ...balances };
+    let requestedWithdrawalNeed = Math.max(0, totalCashNeed - guaranteedIncome);
+    let previousGap = Number.POSITIVE_INFINITY;
+    let withdrawals: WithdrawalResult = {
+      tfsa: 0,
+      fhsa: 0,
+      rrsp: 0,
+      rrsp_spouse: 0,
+      non_reg_primary: 0,
+      non_reg_spouse: 0,
+      rrifMinimum: 0,
+      bracketTop: 0,
+      total: 0,
+      cap_gain_primary: 0,
+      cap_gain_spouse: 0,
+    };
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const trialBalances: AccountBalances = { ...balancesBeforeWithdrawals };
+      const trialWithdrawals = calculateOptimizedWithdrawals(
+        trialBalances,
+        requestedWithdrawalNeed,
+        age,
+        baseTaxableIncome,
+        scenario.province,
+        year,
+        effectiveInflation,
+        oas,
+        isCouple,
+        spouseTaxableSalary + spouseCpp + spouseOas + spouseDbPensionBase,
+        gisResult,
+        rrspExhaustionAnnualBase,
+        isRetired,
+        retirementYearIndex,
+        effectiveWithdrawalStrategy,
+        disableForcedWithdrawals,
+        disableBracketFilling,
+        scenario.life_expectancy,
+        scenario.spouse_life_expectancy,
+        scenario.retirement_age,
+        retirementReturnAssumption,
+        planEndAge,
+        rrspExhaustYearsBeforeEnd
+      );
+      const trialTaxes = calculateTaxTotals(trialWithdrawals);
+      const trialNonRegWithdrawal = trialWithdrawals.non_reg_primary + trialWithdrawals.non_reg_spouse;
+      const trialAfterTaxIncomeBeforeSalaryFunding =
+        guaranteedIncome +
+        trialWithdrawals.rrsp +
+        trialWithdrawals.rrsp_spouse +
+        trialNonRegWithdrawal -
+        trialTaxes.totalTax +
+        trialWithdrawals.tfsa +
+        trialWithdrawals.fhsa;
+      const remainingGap = Math.max(0, totalCashNeed - trialAfterTaxIncomeBeforeSalaryFunding);
+
+      withdrawals = trialWithdrawals;
+      Object.assign(balances, trialBalances);
+
+      if (remainingGap <= 1) {
+        break;
+      }
+
+      if (remainingGap >= previousGap - 1) {
+        break;
+      }
+
+      previousGap = remainingGap;
+      requestedWithdrawalNeed += remainingGap;
+    }
 
     const yearAllocations = allocations
       ? getGlidePathAllocations(allocations, age, scenario.current_age, scenario)
@@ -1147,7 +1363,7 @@ export function runSingleProjection(
       if (isCouple) {
         const spouseTaxable = spouseTaxableIncomeBase;
         const spousePensionForCredit = spouseCpp + spouseDbPensionBase;
-        const spouseCalc = calculateTotalTax(spouseTaxable, scenario.province, spouseSalary, spouseOas, year, effectiveInflation, undefined, age, spousePensionForCredit);
+        const spouseCalc = calculateTotalTax(spouseTaxable, scenario.province, spouseSalary, spouseOas, year, effectiveInflation, undefined, spouseAge, spousePensionForCredit);
         federalTax += spouseCalc.federal;
         provincialTax += spouseCalc.provincial;
         cppEiOasTax += spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback;
@@ -1156,19 +1372,16 @@ export function runSingleProjection(
     }
 
     const nonRegWithdrawal = withdrawals.non_reg_primary + withdrawals.non_reg_spouse;
-    const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa;
+    const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa + withdrawals.fhsa;
     const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
-    const expenseShortfall = Math.max(0, totalExpensesNeeded - afterTaxIncomeBeforeSalaryFunding);
+    const expenseShortfall = Math.max(0, totalExpensesNeeded - afterTaxIncome);
 
     const isNetExpensesOnly = effectiveWithdrawalStrategy === 'net_expenses_only';
     let surplus = afterTaxIncome - totalExpensesNeeded;
     let surplusToNonReg = 0;
 
     if (isNetExpensesOnly) {
-      const withdrawalsWithTax = withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal + withdrawals.tfsa;
-      const withdrawalAfterTax = withdrawalsWithTax - totalTax;
-      const exactAmountNeeded = totalExpensesNeeded - guaranteedIncome;
-      surplus = withdrawalAfterTax - exactAmountNeeded;
+      surplus = afterTaxIncome - totalExpensesNeeded;
       surplusToNonReg = surplus > 0 ? surplus : 0;
     } else {
       surplusToNonReg = surplus > 0 ? surplus : 0;
@@ -1229,6 +1442,7 @@ export function runSingleProjection(
       inheritance,
       total_income: guaranteedIncome,
       tfsa_withdrawal: withdrawals.tfsa,
+      fhsa_withdrawal: withdrawals.fhsa,
       rrsp_withdrawal: withdrawals.rrsp + withdrawals.rrsp_spouse,
       rrsp_withdrawal_primary: withdrawals.rrsp,
       rrsp_withdrawal_spouse: withdrawals.rrsp_spouse,
@@ -1348,9 +1562,36 @@ export interface CppOasOptimizationRow {
   final_net_worth: number;
 }
 
+export interface CppOasOptimizationResult {
+  isCouple: boolean;
+  phase1Person: 'primary' | 'spouse';
+  phase1Label: string;
+  phase1Rows: CppOasOptimizationRow[];
+  phase2Person?: 'primary' | 'spouse';
+  phase2Label?: string;
+  phase2Rows?: CppOasOptimizationRow[];
+}
+
 interface CppOasOptimizationOptions {
   showTodayDollars?: boolean;
   inflationRate?: number;
+}
+
+function scoreOptimizationRows(rows: Omit<CppOasOptimizationRow, 'recommendation_score'>[]): CppOasOptimizationRow[] {
+  const minWithdrawals = Math.min(...rows.map(r => r.retirement_withdrawals));
+  const maxWithdrawals = Math.max(...rows.map(r => r.retirement_withdrawals));
+  const minTaxes = Math.min(...rows.map(r => r.retirement_taxes_paid));
+  const maxTaxes = Math.max(...rows.map(r => r.retirement_taxes_paid));
+  const withdrawalRange = maxWithdrawals - minWithdrawals;
+  const taxRange = maxTaxes - minTaxes;
+
+  return rows
+    .map(row => {
+      const withdrawalScore = withdrawalRange > 0 ? (row.retirement_withdrawals - minWithdrawals) / withdrawalRange : 1;
+      const taxScore = taxRange > 0 ? (maxTaxes - row.retirement_taxes_paid) / taxRange : 1;
+      return { ...row, recommendation_score: withdrawalScore * 0.6 + taxScore * 0.4 };
+    })
+    .sort((a, b) => b.recommendation_score - a.recommendation_score);
 }
 
 export function runCppOasOptimization(
@@ -1361,9 +1602,10 @@ export function runCppOasOptimization(
   healthcareSteps: HealthcareStep[] = [],
   oneTimeEvents: OneTimeEvent[],
   options: CppOasOptimizationOptions = {}
-): CppOasOptimizationRow[] {
+): CppOasOptimizationResult {
   const showTodayDollars = options.showTodayDollars ?? false;
   const inflationRate = options.inflationRate ?? scenario.inflation_rate;
+  const isCouple = scenario.profile_type === 'couple';
 
   const combinations: Array<{ cpp: number; oas: number }> = [];
   for (let cpp = 60; cpp <= 70; cpp += 1) {
@@ -1375,62 +1617,72 @@ export function runCppOasOptimization(
   const pv = (amount: number, yearIndex: number) =>
     showTodayDollars ? presentValue(amount, yearIndex, inflationRate) : amount;
 
-  const rows = combinations.map(({ cpp, oas }) => {
-    const projections = runSingleProjection(
-      scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
-      undefined, cpp, oas
-    );
-
-    const lastSalaryAge = projections.reduce(
-      (maxAge, p) => (p.salary > 0 ? Math.max(maxAge, p.age) : maxAge),
-      -1
-    );
-    const retirementStartAge = lastSalaryAge >= 0 ? lastSalaryAge + 1 : scenario.retirement_age;
-    const retirementProjections = projections.filter(p => p.age >= retirementStartAge);
-
-    const retirementWithdrawals = retirementProjections.reduce(
-      (sum, p) => sum + pv(p.total_withdrawals, p.year - 1),
-      0
-    );
-    const retirementTaxesPaid = retirementProjections.reduce(
-      (sum, p) => sum + pv(p.total_tax, p.year - 1),
-      0
-    );
-
-    return {
-      cpp_start_age: cpp,
-      oas_start_age: oas,
-      retirement_withdrawals: retirementWithdrawals,
-      retirement_taxes_paid: retirementTaxesPaid,
-      recommendation_score: 0,
-      // Backward compatibility for components currently bound to these fields.
-      total_withdrawals: retirementWithdrawals,
-      total_taxes_paid: retirementTaxesPaid,
-      final_net_worth: pv(projections[projections.length - 1]?.total_balance || 0, projections.length - 1)
-    };
-  });
-
-  const minWithdrawals = Math.min(...rows.map(r => r.retirement_withdrawals));
-  const maxWithdrawals = Math.max(...rows.map(r => r.retirement_withdrawals));
-  const minTaxes = Math.min(...rows.map(r => r.retirement_taxes_paid));
-  const maxTaxes = Math.max(...rows.map(r => r.retirement_taxes_paid));
-
-  const withdrawalRange = maxWithdrawals - minWithdrawals;
-  const taxRange = maxTaxes - minTaxes;
-
-  return rows
-    .map(row => {
-      const withdrawalScore = withdrawalRange > 0
-        ? (row.retirement_withdrawals - minWithdrawals) / withdrawalRange
-        : 1;
-      const taxScore = taxRange > 0
-        ? (maxTaxes - row.retirement_taxes_paid) / taxRange
-        : 1;
-      const recommendationScore = withdrawalScore * 0.6 + taxScore * 0.4;
+  const runCombinations = (getScenario: (cpp: number, oas: number) => Scenario): CppOasOptimizationRow[] => {
+    const rows = combinations.map(({ cpp, oas }) => {
+      const comboScenario = getScenario(cpp, oas);
+      const projections = runSingleProjection(
+        comboScenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents
+      );
+      const lastSalaryAge = projections.reduce((m, p) => p.salary > 0 ? Math.max(m, p.age) : m, -1);
+      const retirementStartAge = lastSalaryAge >= 0 ? lastSalaryAge + 1 : scenario.retirement_age;
+      const retProjns = projections.filter(p => p.age >= retirementStartAge);
+      const retirementWithdrawals = retProjns.reduce((s, p) => s + pv(p.total_withdrawals, p.year - 1), 0);
+      const retirementTaxesPaid = retProjns.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0);
       return {
-        ...row,
-        recommendation_score: recommendationScore
+        cpp_start_age: cpp,
+        oas_start_age: oas,
+        retirement_withdrawals: retirementWithdrawals,
+        retirement_taxes_paid: retirementTaxesPaid,
+        recommendation_score: 0,
+        total_withdrawals: retirementWithdrawals,
+        total_taxes_paid: retirementTaxesPaid,
+        final_net_worth: pv(projections[projections.length - 1]?.total_balance || 0, projections.length - 1)
       };
-    })
-    .sort((a, b) => b.recommendation_score - a.recommendation_score);
+    });
+    return scoreOptimizationRows(rows);
+  };
+
+  if (!isCouple) {
+    const phase1Rows = runCombinations((cpp, oas) => ({ ...scenario, cpp_start_age: cpp, oas_start_age: oas }));
+    return { isCouple: false, phase1Person: 'primary', phase1Label: 'Primary', phase1Rows };
+  }
+
+  // Couple: determine who retires first (by years from today to retirement)
+  const primaryYearsToRet = scenario.retirement_age - scenario.current_age;
+  const spouseYearsToRet = (scenario.spouse_retirement_age ?? scenario.retirement_age) - (scenario.spouse_age ?? scenario.current_age);
+  const primaryFirst = primaryYearsToRet <= spouseYearsToRet;
+
+  if (primaryFirst) {
+    // Phase 1: optimize primary CPP/OAS
+    const phase1Rows = runCombinations((cpp, oas) => ({ ...scenario, cpp_start_age: cpp, oas_start_age: oas }));
+    const best = phase1Rows[0];
+    // Phase 2: fix primary at best, optimize spouse CPP/OAS
+    const bestPrimaryBase = { ...scenario, cpp_start_age: best.cpp_start_age, oas_start_age: best.oas_start_age };
+    const phase2Rows = runCombinations((cpp, oas) => ({
+      ...bestPrimaryBase, spouse_cpp_start_age: cpp, spouse_oas_start_age: oas
+    }));
+    return {
+      isCouple: true,
+      phase1Person: 'primary', phase1Label: 'Primary',
+      phase1Rows,
+      phase2Person: 'spouse', phase2Label: 'Spouse',
+      phase2Rows
+    };
+  } else {
+    // Phase 1: optimize spouse CPP/OAS
+    const phase1Rows = runCombinations((cpp, oas) => ({ ...scenario, spouse_cpp_start_age: cpp, spouse_oas_start_age: oas }));
+    const best = phase1Rows[0];
+    // Phase 2: fix spouse at best, optimize primary CPP/OAS
+    const bestSpouseBase = { ...scenario, spouse_cpp_start_age: best.cpp_start_age, spouse_oas_start_age: best.oas_start_age };
+    const phase2Rows = runCombinations((cpp, oas) => ({
+      ...bestSpouseBase, cpp_start_age: cpp, oas_start_age: oas
+    }));
+    return {
+      isCouple: true,
+      phase1Person: 'spouse', phase1Label: 'Spouse',
+      phase1Rows,
+      phase2Person: 'primary', phase2Label: 'Primary',
+      phase2Rows
+    };
+  }
 }

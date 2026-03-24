@@ -74,6 +74,14 @@ export default function NetWorthChart({
     };
   });
 
+  const visibleAreas = {
+    rrsp: chartData.some((row) => row.rrsp_balance > 0),
+    tfsa: chartData.some((row) => row.tfsa_balance > 0),
+    fhsa: chartData.some((row) => row.fhsa_balance > 0),
+    nonReg: chartData.some((row) => row.non_reg_balance > 0),
+    optimized: chartData.some((row) => (row.optimized_balance ?? 0) > 0),
+  };
+
   const handleMouseMove = (data: any) => {
     if (data?.activePayload?.[0]) {
       const p = projections.find(pr => pr.age === data.activePayload[0].payload.age);
@@ -147,15 +155,23 @@ export default function NetWorthChart({
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Area type="monotone" dataKey="rrsp_balance" name="RRSP" stackId="1"
-                stroke="#3b82f6" fill="url(#rrspGrad)" strokeWidth={1.5} />
-              <Area type="monotone" dataKey="tfsa_balance" name="TFSA" stackId="1"
-                stroke="#10b981" fill="url(#tfsaGrad)" strokeWidth={1.5} />
-              <Area type="monotone" dataKey="fhsa_balance" name="FHSA" stackId="1"
-                stroke="#6366f1" fill="url(#fhsaGrad)" strokeWidth={1.5} />
-              <Area type="monotone" dataKey="non_reg_balance" name="Non-Reg" stackId="1"
-                stroke="#f59e0b" fill="url(#nonRegGrad)" strokeWidth={1.5} />
-              {optimizedProjections && (
+              {visibleAreas.rrsp && (
+                <Area type="monotone" dataKey="rrsp_balance" name="RRSP" stackId="1"
+                  stroke="#3b82f6" fill="url(#rrspGrad)" strokeWidth={1.5} />
+              )}
+              {visibleAreas.tfsa && (
+                <Area type="monotone" dataKey="tfsa_balance" name="TFSA" stackId="1"
+                  stroke="#10b981" fill="url(#tfsaGrad)" strokeWidth={1.5} />
+              )}
+              {visibleAreas.fhsa && (
+                <Area type="monotone" dataKey="fhsa_balance" name="FHSA" stackId="1"
+                  stroke="#6366f1" fill="url(#fhsaGrad)" strokeWidth={1.5} />
+              )}
+              {visibleAreas.nonReg && (
+                <Area type="monotone" dataKey="non_reg_balance" name="Non-Reg" stackId="1"
+                  stroke="#f59e0b" fill="url(#nonRegGrad)" strokeWidth={1.5} />
+              )}
+              {optimizedProjections && visibleAreas.optimized && (
                 <Area type="monotone" dataKey="optimized_balance" name="Optimized Plan" stackId="2"
                   stroke="#8b5cf6" fill="none" strokeWidth={2.5} strokeDasharray="5 5" />
               )}
