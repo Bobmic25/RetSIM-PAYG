@@ -185,6 +185,7 @@ function calculateContributions(
 const FOREIGN_WITHHOLDING_DIVIDEND_YIELD = 0.02;
 const FOREIGN_WITHHOLDING_RATE = 0.15;
 const FOREIGN_WITHHOLDING_DRAG = FOREIGN_WITHHOLDING_DIVIDEND_YIELD * FOREIGN_WITHHOLDING_RATE;
+const DEFAULT_MONTE_CARLO_EQUITY_WEIGHT = 0.6;
 
 function getAccountForeignEquityWeight(accountType: string, allocations?: AssetAllocation[], person?: 'primary' | 'spouse'): number {
   if (!allocations || allocations.length === 0) return 0.6;
@@ -217,6 +218,37 @@ function applyReturns(balances: AccountBalances, returnRate: number, allocations
   const nonRegSpouseDrag = nonRegSpouseForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
   const nonRegSpouseGrowthFactor = 1 + (returnRate - nonRegSpouseDrag) / 100;
   balances.non_reg_spouse *= nonRegSpouseGrowthFactor;
+}
+
+function normalizeGeoMix(cadWeight?: number, usWeight?: number, intWeight?: number): { cadWeight: number; usWeight: number; intWeight: number } {
+  const cad = cadWeight ?? 60;
+  const us = usWeight ?? 40;
+  const intl = intWeight ?? Math.max(0, 100 - cad - us);
+  const total = cad + us + intl;
+
+  if (total <= 0) {
+    return { cadWeight: 0.6, usWeight: 0.4, intWeight: 0 };
+  }
+
+  return {
+    cadWeight: cad / total,
+    usWeight: us / total,
+    intWeight: intl / total,
+  };
+}
+
+function getAllocationPortfolioWeight(alloc: AssetAllocation, savingsAccounts: SavingsAccount[]): number {
+  const matchedAccounts = savingsAccounts.filter(account => {
+    if (account.account_type !== alloc.account_type) return false;
+    return (account.person ?? 'primary') === (alloc.person ?? 'primary');
+  });
+
+  if (matchedAccounts.length === 0) {
+    return 1;
+  }
+
+  const totalBalance = matchedAccounts.reduce((sum, account) => sum + Math.max(0, account.current_balance || 0), 0);
+  return totalBalance > 0 ? totalBalance : 1;
 }
 
 function calcNonRegCapitalGainInclusion(
@@ -767,26 +799,47 @@ function getGlidePathAllocations(
   });
 }
 
-function getPortfolioGeoWeights(allocations: AssetAllocation[]): { usWeight: number; cadWeight: number; intWeight: number } {
-  if (!allocations || allocations.length === 0) return { usWeight: 0.4, cadWeight: 0.6, intWeight: 0 };
-  let totalStocks = 0;
+function getPortfolioGeoWeights(
+  allocations: AssetAllocation[],
+  savingsAccounts: SavingsAccount[]
+): { usWeight: number; cadWeight: number; intWeight: number } {
+  if (!allocations || allocations.length === 0) {
+    return {
+      usWeight: 0.4 * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+      cadWeight: 0.6 * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+      intWeight: 0,
+    };
+  }
+
+  let totalPortfolioWeight = 0;
   let weightedUs = 0;
   let weightedCad = 0;
   let weightedInt = 0;
+
   for (const alloc of allocations) {
-    totalStocks += alloc.stocks;
-    const usW = alloc.us_equity_weight ?? 60;
-    const cadW = alloc.cad_equity_weight ?? 40;
-    const intW = alloc.int_equity_weight ?? 0;
-    weightedUs += alloc.stocks * (usW / 100);
-    weightedCad += alloc.stocks * (cadW / 100);
-    weightedInt += alloc.stocks * (intW / 100);
+    const portfolioWeight = getAllocationPortfolioWeight(alloc, savingsAccounts);
+    const stockWeight = Math.max(0, Math.min(100, alloc.stocks ?? 0)) / 100;
+    const geo = normalizeGeoMix(alloc.cad_equity_weight, alloc.us_equity_weight, alloc.int_equity_weight);
+    const effectiveStockExposure = portfolioWeight * stockWeight;
+
+    totalPortfolioWeight += portfolioWeight;
+    weightedCad += effectiveStockExposure * geo.cadWeight;
+    weightedUs += effectiveStockExposure * geo.usWeight;
+    weightedInt += effectiveStockExposure * geo.intWeight;
   }
-  if (totalStocks <= 0) return { usWeight: 0.4, cadWeight: 0.6, intWeight: 0 };
+
+  if (totalPortfolioWeight <= 0) {
+    return {
+      usWeight: 0.4 * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+      cadWeight: 0.6 * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+      intWeight: 0,
+    };
+  }
+
   return {
-    usWeight: weightedUs / totalStocks,
-    cadWeight: weightedCad / totalStocks,
-    intWeight: weightedInt / totalStocks,
+    usWeight: weightedUs / totalPortfolioWeight,
+    cadWeight: weightedCad / totalPortfolioWeight,
+    intWeight: weightedInt / totalPortfolioWeight,
   };
 }
 
@@ -1516,16 +1569,22 @@ export async function runMonteCarloSimulation(
   const iterations = scenario.monte_carlo_iterations;
   const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
   const netExpectedReturn = getNetExpectedReturn(scenario);
-  const geoFromScenario = (scenario.cad_equity_weight != null && scenario.us_equity_weight != null)
-    ? {
-        cadWeight: scenario.cad_equity_weight / 100,
-        usWeight: scenario.us_equity_weight / 100,
-        intWeight: (scenario.int_equity_weight != null)
-          ? scenario.int_equity_weight / 100
-          : Math.max(0, 1 - (scenario.cad_equity_weight + scenario.us_equity_weight) / 100),
-      }
+  const hasCustomAllocations = Boolean(allocations && allocations.length > 0);
+  const geoFromScenario = (!hasCustomAllocations && scenario.cad_equity_weight != null && scenario.us_equity_weight != null)
+    ? (() => {
+        const normalized = normalizeGeoMix(
+          scenario.cad_equity_weight,
+          scenario.us_equity_weight,
+          scenario.int_equity_weight
+        );
+        return {
+          cadWeight: normalized.cadWeight * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+          usWeight: normalized.usWeight * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+          intWeight: normalized.intWeight * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+        };
+      })()
     : null;
-  const { usWeight, cadWeight, intWeight } = geoFromScenario ?? getPortfolioGeoWeights(allocations || []);
+  const { usWeight, cadWeight, intWeight } = geoFromScenario ?? getPortfolioGeoWeights(allocations || [], savingsAccounts);
 
   const result = await runMonteCarloMemoryEfficient(
     iterations,

@@ -32,6 +32,7 @@ import { runSingleProjection, type ProjectionOverrides } from './lib/projectionE
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
 import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataService';
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
+import { estimateMarketAssumptions } from './lib/marketAssumptions';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
 
 interface SavedResult {
@@ -130,6 +131,11 @@ const IconNav = ({ currentStep, onNavigate, highestVisited }: { currentStep: num
 
 
 function App() {
+  const initialMarketAssumptions = estimateMarketAssumptions({
+    cad_equity_weight: 60,
+    us_equity_weight: 40,
+    int_equity_weight: 0,
+  });
   const [currentStep, setCurrentStep] = useState(0);
   const [highestVisited, setHighestVisited] = useState(0);
   const [scenario, setScenario] = useState<Scenario>({
@@ -142,8 +148,9 @@ function App() {
     province: 'ON' as Province,
     inflation_rate: 2.5,
     return_type: 'linear',
-    expected_return: 6.0,
-    management_fee_pct: 0,
+    expected_return: initialMarketAssumptions.expectedReturn,
+    management_fee_pct: 1.4,
+    return_std_dev: initialMarketAssumptions.stdDev,
     return_periods: [],
     monte_carlo_iterations: 1000,
     withdrawal_strategy: 'maximize_spending',
@@ -177,6 +184,7 @@ function App() {
   const [taxDataStatus, setTaxDataStatus] = useState<'loading' | 'live' | 'fallback'>('loading');
   const [tfsaLimitData, setTfsaLimitData] = useState<LiveTfsaLimitData | null>(null);
   const [mcIsStale, setMcIsStale] = useState(false);
+  const [marketAssumptionsAuto, setMarketAssumptionsAuto] = useState(true);
   const calculationPending = useRef(false);
 
   useEffect(() => {
@@ -209,6 +217,35 @@ function App() {
   const updateScenario = (updates: Partial<Scenario>) => {
     setScenario(prev => ({ ...prev, ...updates }));
   };
+
+  useEffect(() => {
+    if (!marketAssumptionsAuto) {
+      return;
+    }
+
+    const estimated = estimateMarketAssumptions(scenario, assetAllocations, savingsAccounts);
+    setScenario(prev => {
+      if (
+        prev.expected_return === estimated.expectedReturn &&
+        (prev.return_std_dev ?? estimated.stdDev) === estimated.stdDev
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        expected_return: estimated.expectedReturn,
+        return_std_dev: estimated.stdDev,
+      };
+    });
+  }, [
+    marketAssumptionsAuto,
+    scenario.cad_equity_weight,
+    scenario.us_equity_weight,
+    scenario.int_equity_weight,
+    assetAllocations,
+    savingsAccounts,
+  ]);
 
   const activeWorkerRef = useRef<Worker | null>(null);
 
@@ -416,16 +453,28 @@ function App() {
     healthcareSteps: HealthcareStep[];
     oneTimeEvents: OneTimeEvent[];
   }) => {
+    setMarketAssumptionsAuto(false);
+    const loadedCadWeight = data.scenario.cad_equity_weight ?? 60;
+    const loadedUsWeight = data.scenario.us_equity_weight ?? 40;
+    const loadedIntWeight = data.scenario.int_equity_weight ?? Math.max(0, 100 - loadedCadWeight - loadedUsWeight);
+    const loadedMarketAssumptions = estimateMarketAssumptions({
+      cad_equity_weight: loadedCadWeight,
+      us_equity_weight: loadedUsWeight,
+      int_equity_weight: loadedIntWeight,
+    });
+
     setScenario({
       ...data.scenario,
       return_type: data.scenario.return_type ?? 'linear',
-      management_fee_pct: data.scenario.management_fee_pct ?? 0,
+      expected_return: data.scenario.expected_return ?? loadedMarketAssumptions.expectedReturn,
+      management_fee_pct: data.scenario.management_fee_pct ?? 1.4,
       return_periods: data.scenario.return_periods ?? [],
       rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2,
       spouse_retirement_age: data.scenario.spouse_retirement_age ?? data.scenario.retirement_age,
-      cad_equity_weight: data.scenario.cad_equity_weight ?? 60,
-      us_equity_weight: data.scenario.us_equity_weight ?? 40,
-      int_equity_weight: data.scenario.int_equity_weight ?? Math.max(0, 100 - (data.scenario.cad_equity_weight ?? 60) - (data.scenario.us_equity_weight ?? 40))
+      cad_equity_weight: loadedCadWeight,
+      us_equity_weight: loadedUsWeight,
+      int_equity_weight: loadedIntWeight,
+      return_std_dev: data.scenario.return_std_dev ?? loadedMarketAssumptions.stdDev,
     });
     setIncomeSources(data.incomeSources);
     setSavingsAccounts(data.savingsAccounts);
@@ -472,6 +521,9 @@ function App() {
               <ReturnsForm
                 scenario={scenario}
                 onChange={updateScenario}
+                marketAssumptionsAuto={marketAssumptionsAuto}
+                onSetMarketAssumptionsAuto={setMarketAssumptionsAuto}
+                estimatedMarketAssumptions={estimateMarketAssumptions(scenario, assetAllocations, savingsAccounts)}
               />
             )}
             {currentStep === 5 && (

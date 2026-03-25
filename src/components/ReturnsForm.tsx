@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { Plus, Trash2, HelpCircle, X } from 'lucide-react';
 import { Scenario } from '../types/retirement';
 import { MONTE_CARLO_MAX_ITERATIONS, MONTE_CARLO_DEFAULT_ITERATIONS } from '../lib/monteCarloEngine';
+import { MarketAssumptions } from '../lib/marketAssumptions';
 
 interface ReturnsFormProps {
   scenario: Scenario;
   onChange: (updates: Partial<Scenario>) => void;
+  marketAssumptionsAuto: boolean;
+  onSetMarketAssumptionsAuto: (value: boolean) => void;
+  estimatedMarketAssumptions: MarketAssumptions;
 }
 
 function MonteCarloInfoModal({ onClose }: { onClose: () => void }) {
@@ -180,11 +184,24 @@ function StrategyPicker({
   );
 }
 
-export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
+export default function ReturnsForm({
+  scenario,
+  onChange,
+  marketAssumptionsAuto,
+  onSetMarketAssumptionsAuto,
+  estimatedMarketAssumptions,
+}: ReturnsFormProps) {
   const currentYear = new Date().getFullYear();
   const [showMonteCarloInfo, setShowMonteCarloInfo] = useState(false);
   const returnPeriods = scenario.return_periods ?? [];
   const netExpectedReturn = scenario.expected_return - (scenario.management_fee_pct ?? 0);
+  const equitySharePct = Math.round(estimatedMarketAssumptions.totalEquityWeight * 100);
+  const fixedIncomeSharePct = Math.round(estimatedMarketAssumptions.fixedIncomeWeight * 100);
+  const usingAssetAllocations = estimatedMarketAssumptions.source === 'allocations';
+  const effectiveCadPortfolioPct = Number(((estimatedMarketAssumptions.totalEquityWeight * estimatedMarketAssumptions.cadEquityWeight)).toFixed(1));
+  const effectiveUsPortfolioPct = Number(((estimatedMarketAssumptions.totalEquityWeight * estimatedMarketAssumptions.usEquityWeight)).toFixed(1));
+  const effectiveIntlPortfolioPct = Number(((estimatedMarketAssumptions.totalEquityWeight * estimatedMarketAssumptions.intEquityWeight)).toFixed(1));
+  const effectiveNonEquityPortfolioPct = Number((estimatedMarketAssumptions.fixedIncomeWeight * 100).toFixed(1));
 
   const rebalanceGeoWeights = (
     current: { cad: number; us: number; intl: number },
@@ -285,9 +302,17 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
               {scenario.return_type === 'linear' ? 'Default Annual Return (%)' : 'Expected Annual Return (%)'}
             </label>
             <input type="number" step="0.5" value={scenario.expected_return} min={-10} max={30}
-              onChange={e => onChange({ expected_return: parseFloat(e.target.value) || 0 })}
+              onChange={e => {
+                onSetMarketAssumptionsAuto(false);
+                onChange({ expected_return: parseFloat(e.target.value) || 0 });
+              }}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             <p className="text-xs text-gray-500 mt-1">Historical long-term average: 6–8%</p>
+            <p className="text-xs italic text-gray-500 mt-1">
+              {marketAssumptionsAuto
+                ? 'Value set based on market estimation in accordance with the equity allocation provided.'
+                : 'Manual override active. Re-enable auto-estimation to keep this synced with allocation changes.'}
+            </p>
           </div>
         )}
 
@@ -298,7 +323,7 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
             step="0.1"
             min={0}
             max={10}
-            value={scenario.management_fee_pct ?? 0}
+            value={scenario.management_fee_pct ?? 1.4}
             onChange={e => onChange({ management_fee_pct: Math.max(0, Math.min(10, parseFloat(e.target.value) || 0)) })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
@@ -312,8 +337,16 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Standard Deviation (%)</label>
               <input type="number" step="0.5" value={scenario.return_std_dev || 10} min={0} max={30}
-                onChange={e => onChange({ return_std_dev: parseFloat(e.target.value) || 0 })}
+                onChange={e => {
+                  onSetMarketAssumptionsAuto(false);
+                  onChange({ return_std_dev: parseFloat(e.target.value) || 0 });
+                }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              <p className="text-xs italic text-gray-500 mt-1">
+                {marketAssumptionsAuto
+                  ? 'Value set based on market estimation in accordance with the equity allocation provided.'
+                  : 'Manual override active. Re-enable auto-estimation to keep this synced with allocation changes.'}
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Monte Carlo Iterations</label>
@@ -336,6 +369,54 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
           selected={scenario.withdrawal_strategy}
           onChange={(id) => onChange({ withdrawal_strategy: id })}
         />
+
+        <div className="md:col-span-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h4 className="font-semibold text-gray-900">Monte Carlo Model Feedback</h4>
+              <p className="mt-1 text-sm text-gray-600">
+                The live model is currently using an effective mix of {equitySharePct}% stocks and {fixedIncomeSharePct}% non-equity assets.
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                Within the stock sleeve, geographic equity mix is Canada {estimatedMarketAssumptions.cadEquityWeight.toFixed(1)}%, US {estimatedMarketAssumptions.usEquityWeight.toFixed(1)}%, International {estimatedMarketAssumptions.intEquityWeight.toFixed(1)}%.
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                FP Canada default assumptions imply {estimatedMarketAssumptions.expectedReturn.toFixed(1)}% expected return and {estimatedMarketAssumptions.stdDev.toFixed(1)}% volatility before management fees.
+              </p>
+              <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900">
+                Geographic equity sliders affect only the stock portion of the portfolio. For example, a 60/40 stock-to-non-equity portfolio with a 60/40 Canada-US equity mix is modelled as 36% Canada equity, 24% US equity, and 40% non-equity.
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Right now, that works out to {effectiveCadPortfolioPct.toFixed(1)}% Canada, {effectiveUsPortfolioPct.toFixed(1)}% US, {effectiveIntlPortfolioPct.toFixed(1)}% International, and {effectiveNonEquityPortfolioPct.toFixed(1)}% non-equity.
+              </p>
+              <p className="mt-2 text-xs italic text-gray-500">
+                {usingAssetAllocations
+                  ? 'These values are being driven by the Assets tab. The geographic sliders below act only as a fallback when account-level allocations have not been customized.'
+                  : 'Without account-level allocations, the model assumes a 60/40 stock-to-non-equity mix and applies the geographic sliders only within that 60% equity sleeve.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+                <input
+                  type="checkbox"
+                  checked={marketAssumptionsAuto}
+                  onChange={e => {
+                    const enabled = e.target.checked;
+                    onSetMarketAssumptionsAuto(enabled);
+                    if (enabled) {
+                      onChange({
+                        expected_return: estimatedMarketAssumptions.expectedReturn,
+                        return_std_dev: estimatedMarketAssumptions.stdDev,
+                      });
+                    }
+                  }}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Auto-estimate from allocation
+              </label>
+            </div>
+          </div>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -361,8 +442,11 @@ export default function ReturnsForm({ scenario, onChange }: ReturnsFormProps) {
 
       <div className="border border-gray-200 rounded-lg p-4 space-y-4">
         <div>
-          <h4 className="font-semibold text-gray-900 mb-1">Geographic Equity Allocation</h4>
-          <p className="text-sm text-gray-500">Fallback geography used for Monte Carlo when you have not customized allocations in the Assets tab. Canada, US, and International always sum to 100%.</p>
+          <h4 className="font-semibold text-gray-900 mb-1">Geographic Equity Mix</h4>
+          <p className="text-sm text-gray-500">Fallback stock-sleeve geography used for Monte Carlo when you have not customized allocations in the Assets tab. Canada, US, and International always sum to 100%.</p>
+          <p className="text-xs italic text-gray-500 mt-1">
+            These sliders split only the equity sleeve. The engine then scales that mix by your effective total stock allocation.
+          </p>
         </div>
         <div className="space-y-5">
           {(() => {

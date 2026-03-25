@@ -288,11 +288,11 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <div className="mb-3">
                   <h5 className="text-sm font-semibold text-gray-800 mb-1">
-                    Equity Geographic Mix
-                    <span className="ml-2 text-xs font-normal text-gray-500">(applies to {alloc.stocks}% stocks allocation)</span>
+                    Geographic Equity Mix
+                    <span className="ml-2 text-xs font-normal text-gray-500">({alloc.stocks}% of this account is currently in stocks)</span>
                   </h5>
                   <p className="text-xs text-gray-500">
-                    Split your equity between Canada (TSX), US (S&amp;P 500), and International (MSCI EAFE). The three weights always stay at exactly 100%.
+                    These sliders split only the stock sleeve of this account between Canada, US, and International. The Monte Carlo engine then scales that equity mix by this account's actual stock percentage.
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -345,7 +345,7 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
       })}
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-        <strong>How this info is used:</strong> This allocation determines the expected growth rate of each account. Geographic weights for US and International equities are used to calculate foreign withholding tax drag in TFSA and Non-Registered accounts and to calibrate market volatility and currency correlations in Monte Carlo stress tests.
+        <strong>How this info is used:</strong> This allocation determines the expected growth rate of each account. Geographic equity weights are applied only to the stock portion of each account, then scaled down to the account's total portfolio weight for Monte Carlo stress tests.
         <span className="block mt-1 text-blue-700">Suggested defaults: Aggressive more than 10 years before retirement, Balanced near retirement, and Balanced or Conservative after retirement to reduce sequence-of-return risk.</span>
       </div>
     </div>
