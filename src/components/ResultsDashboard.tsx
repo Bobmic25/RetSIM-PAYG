@@ -119,7 +119,7 @@ interface ResultsDashboardProps {
   onRerunMonteCarlo?: () => void;
 }
 
-function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClick }: {
+function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClick, dialPercent }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
@@ -127,7 +127,14 @@ function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClic
   color: string;
   onInfoClick?: () => void;
   onPieClick?: () => void;
+  dialPercent?: number;
 }) {
+  const showDial = typeof dialPercent === 'number';
+  const dialValue = showDial ? Math.max(0, Math.min(100, dialPercent)) : 0;
+  const dialCircumference = 2 * Math.PI * 20;
+  const dialOffset = dialCircumference * (1 - dialValue / 100);
+  const dialStroke = dialValue >= 100 ? '#22c55e' : dialValue >= 75 ? '#3b82f6' : dialValue >= 50 ? '#f59e0b' : '#ef4444';
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
       <div className="flex items-center justify-between mb-2">
@@ -152,8 +159,36 @@ function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClic
             </button>
           )}
         </div>
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>
-          <Icon className="w-4 h-4 text-white" />
+        <div className="flex items-center gap-3">
+          {showDial && (
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-gray-50 ring-1 ring-gray-100">
+              <svg className="h-14 w-14 -rotate-90" viewBox="0 0 48 48" aria-hidden="true">
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  fill="none"
+                  stroke="#e5e7eb"
+                  strokeWidth="5"
+                />
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  fill="none"
+                  stroke={dialStroke}
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeDasharray={dialCircumference}
+                  strokeDashoffset={dialOffset}
+                />
+              </svg>
+              <span className="absolute text-[11px] font-bold text-gray-800">{Math.round(dialValue)}%</span>
+            </div>
+          )}
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>
+            <Icon className="w-4 h-4 text-white" />
+          </div>
         </div>
       </div>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
@@ -248,6 +283,15 @@ export default function ResultsDashboard({
   const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
 
   const retirementProjections = projections.filter(p => p.age >= retirementStartAge);
+  const fundedRetirementYears = runOutAge
+    ? retirementProjections.filter(p => p.age < runOutAge).length
+    : retirementProjections.length;
+  const fundingPercent = retirementProjections.length > 0
+    ? (fundedRetirementYears / retirementProjections.length) * 100
+    : 100;
+  const fundingSubtext = runOutAge
+    ? `${Math.round(fundingPercent)}% of retirement horizon funded`
+    : '100% of retirement horizon funded';
 
   const pv = (amount: number, yearIndex: number) =>
     showTodayDollars ? presentValue(amount, yearIndex, inflationRate) : amount;
@@ -638,8 +682,9 @@ export default function ResultsDashboard({
           icon={Calendar}
           label={runOutAge ? 'Funds Run Out' : 'Funds Last'}
           value={runOutAge ? `Age ${runOutAge}` : `Age ${lastYear.age}+`}
-          sub={runOutAge ? 'Consider adjusting plan' : 'Full plan funded'}
+          sub={fundingSubtext}
           color={runOutAge ? 'bg-red-500' : 'bg-green-500'}
+          dialPercent={fundingPercent}
         />
         <StatCard
           icon={ReceiptText}
