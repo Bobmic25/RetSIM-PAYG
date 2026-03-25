@@ -39,6 +39,7 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
 }) {
   const [contribUnit, setContribUnit] = useState<'Yearly' | 'Monthly'>('Yearly');
   const [showRRSPHelp, setShowRRSPHelp] = useState(false);
+  const [showTFSAHelp, setShowTFSAHelp] = useState(false);
   const storedMonthly = account.monthly_contribution;
   const displayContrib = contribUnit === 'Monthly' ? storedMonthly : storedMonthly * 12;
   const tfsaMonthlyLimit = tfsaLimitData ? tfsaLimitData.annualLimit / 12 : null;
@@ -80,7 +81,34 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
             </div>
             <div className="px-6 py-5">
               <p className="text-sm text-gray-700 leading-relaxed">
-                RRSP accounts should include all deposits intended for this account type, including direct personal contributions and employer-sponsored plans such as Defined Contribution Pension Plans (DCPP).
+                RRSP accounts should include all deposits intended for this account type, including direct personal contributions and employer-sponsored plans such as Defined Contribution Pension Plans (DCPP). To capture employer RRSP contributions separately, add a second RRSP savings account and uncheck the option to deduct that contribution from Primary or Spouse Salary.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTFSAHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-2xl">
+              <h2 className="text-lg font-bold text-gray-900">TFSA Account Information</h2>
+              <button
+                onClick={() => setShowTFSAHelp(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors text-gray-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                Surplus cash in the projection is re-invested into TFSA accounts first, up to the remaining annual TFSA limit for that year. Any surplus above that limit flows into non-registered accounts.
+              </p>
+              <p className="text-sm text-gray-700 leading-relaxed">
+                The annual TFSA cap starts from the current CRA limit and increases over time with inflation. The model only raises the usable cap when the inflation-indexed amount crosses the next $500 step, matching the CRA-style rounding pattern.
+              </p>
+              <p className="text-sm text-gray-700 leading-relaxed">
+                Planned TFSA contributions in this form count first. If those planned deposits use part of the year’s TFSA limit, only the remaining annual room is available for automatic surplus re-investment later in that same year.
               </p>
             </div>
           </div>
@@ -98,6 +126,16 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
                 onClick={() => setShowRRSPHelp(true)}
                 className="text-gray-400 hover:text-blue-600 transition-colors p-0.5"
                 title="Click for more information"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {account.account_type === 'tfsa' && (
+              <button
+                type="button"
+                onClick={() => setShowTFSAHelp(true)}
+                className="text-gray-400 hover:text-blue-600 transition-colors p-0.5"
+                title="Click for TFSA information"
               >
                 <HelpCircle className="w-3.5 h-3.5" />
               </button>
@@ -168,7 +206,7 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
           </label>
           {account.account_type === 'rrsp' && deductFromSalary && (
             <p className="mt-2 text-xs text-blue-700">
-              RRSP note: when checked, this contribution is taken from salary before income tax.
+              RRSP note: when checked, this contribution is taken from salary before income tax. To model employer RRSP contributions, add a second RRSP account and leave this box unchecked.
             </p>
           )}
         </div>

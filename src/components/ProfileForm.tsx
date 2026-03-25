@@ -434,6 +434,52 @@ export default function ProfileForm({ scenario, onChange, onLoadData, inflationD
         </div>
       </div>
 
+      <CppOasPanel
+        label={scenario.profile_type === 'couple' ? 'Primary Person' : 'Your'}
+        accentClass="bg-blue-50 border-blue-200 text-blue-900"
+        cppStartAge={scenario.cpp_start_age}
+        onCppStartAge={v => onChange({ cpp_start_age: v })}
+        cppAmount65={scenario.cpp_amount_65}
+        onCppAmount65={v => onChange({ cpp_amount_65: v })}
+        oasStartAge={scenario.oas_start_age}
+        onOasStartAge={v => onChange({ oas_start_age: v })}
+        oasAmount65={scenario.oas_amount_65 || 8505}
+        onOasAmount65={v => onChange({ oas_amount_65: v })}
+        hasDbPension={scenario.has_db_pension || false}
+        onHasDbPension={v => onChange({ has_db_pension: v })}
+        dbPensionAmount={scenario.db_pension_amount || 0}
+        onDbPensionAmount={v => onChange({ db_pension_amount: v })}
+        dbPensionStartAge={scenario.db_pension_start_age || scenario.retirement_age}
+        onDbPensionStartAge={v => onChange({ db_pension_start_age: v })}
+        dbPensionIndexed={scenario.db_pension_indexed || false}
+        onDbPensionIndexed={v => onChange({ db_pension_indexed: v })}
+        dbPanelAccentClass="bg-blue-50 border-blue-200 text-blue-900"
+      />
+
+      {scenario.profile_type === 'couple' && (
+        <CppOasPanel
+          label="Spouse"
+          accentClass="bg-cyan-50 border-cyan-200 text-cyan-900"
+          cppStartAge={scenario.spouse_cpp_start_age || 65}
+          onCppStartAge={v => onChange({ spouse_cpp_start_age: v })}
+          cppAmount65={scenario.spouse_cpp_amount_65 || 0}
+          onCppAmount65={v => onChange({ spouse_cpp_amount_65: v })}
+          oasStartAge={scenario.spouse_oas_start_age || 65}
+          onOasStartAge={v => onChange({ spouse_oas_start_age: v })}
+          oasAmount65={scenario.spouse_oas_amount_65 || 8505}
+          onOasAmount65={v => onChange({ spouse_oas_amount_65: v })}
+          hasDbPension={scenario.spouse_has_db_pension || false}
+          onHasDbPension={v => onChange({ spouse_has_db_pension: v })}
+          dbPensionAmount={scenario.spouse_db_pension_amount || 0}
+          onDbPensionAmount={v => onChange({ spouse_db_pension_amount: v })}
+          dbPensionStartAge={scenario.spouse_db_pension_start_age || scenario.spouse_retirement_age || scenario.retirement_age}
+          onDbPensionStartAge={v => onChange({ spouse_db_pension_start_age: v })}
+          dbPensionIndexed={scenario.spouse_db_pension_indexed || false}
+          onDbPensionIndexed={v => onChange({ spouse_db_pension_indexed: v })}
+          dbPanelAccentClass="bg-cyan-50 border-cyan-200 text-cyan-900"
+        />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 space-y-4">
           <label className="flex items-start gap-3 cursor-pointer select-none">
@@ -605,52 +651,6 @@ export default function ProfileForm({ scenario, onChange, onLoadData, inflationD
           )}
         </div>
       </div>
-
-      <CppOasPanel
-        label={scenario.profile_type === 'couple' ? 'Primary Person' : 'Your'}
-        accentClass="bg-blue-50 border-blue-200 text-blue-900"
-        cppStartAge={scenario.cpp_start_age}
-        onCppStartAge={v => onChange({ cpp_start_age: v })}
-        cppAmount65={scenario.cpp_amount_65}
-        onCppAmount65={v => onChange({ cpp_amount_65: v })}
-        oasStartAge={scenario.oas_start_age}
-        onOasStartAge={v => onChange({ oas_start_age: v })}
-        oasAmount65={scenario.oas_amount_65 || 8505}
-        onOasAmount65={v => onChange({ oas_amount_65: v })}
-        hasDbPension={scenario.has_db_pension || false}
-        onHasDbPension={v => onChange({ has_db_pension: v })}
-        dbPensionAmount={scenario.db_pension_amount || 0}
-        onDbPensionAmount={v => onChange({ db_pension_amount: v })}
-        dbPensionStartAge={scenario.db_pension_start_age || scenario.retirement_age}
-        onDbPensionStartAge={v => onChange({ db_pension_start_age: v })}
-        dbPensionIndexed={scenario.db_pension_indexed || false}
-        onDbPensionIndexed={v => onChange({ db_pension_indexed: v })}
-        dbPanelAccentClass="bg-blue-50 border-blue-200 text-blue-900"
-      />
-
-      {scenario.profile_type === 'couple' && (
-        <CppOasPanel
-          label="Spouse"
-          accentClass="bg-cyan-50 border-cyan-200 text-cyan-900"
-          cppStartAge={scenario.spouse_cpp_start_age || 65}
-          onCppStartAge={v => onChange({ spouse_cpp_start_age: v })}
-          cppAmount65={scenario.spouse_cpp_amount_65 || 0}
-          onCppAmount65={v => onChange({ spouse_cpp_amount_65: v })}
-          oasStartAge={scenario.spouse_oas_start_age || 65}
-          onOasStartAge={v => onChange({ spouse_oas_start_age: v })}
-          oasAmount65={scenario.spouse_oas_amount_65 || 8505}
-          onOasAmount65={v => onChange({ spouse_oas_amount_65: v })}
-          hasDbPension={scenario.spouse_has_db_pension || false}
-          onHasDbPension={v => onChange({ spouse_has_db_pension: v })}
-          dbPensionAmount={scenario.spouse_db_pension_amount || 0}
-          onDbPensionAmount={v => onChange({ spouse_db_pension_amount: v })}
-          dbPensionStartAge={scenario.spouse_db_pension_start_age || scenario.spouse_retirement_age || scenario.retirement_age}
-          onDbPensionStartAge={v => onChange({ spouse_db_pension_start_age: v })}
-          dbPensionIndexed={scenario.spouse_db_pension_indexed || false}
-          onDbPensionIndexed={v => onChange({ spouse_db_pension_indexed: v })}
-          dbPanelAccentClass="bg-cyan-50 border-cyan-200 text-cyan-900"
-        />
-      )}
     </div>
   );
 }

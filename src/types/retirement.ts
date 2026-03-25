@@ -190,6 +190,8 @@ export interface YearlyProjection {
   non_reg_contribution_primary?: number;
   non_reg_contribution_spouse?: number;
   non_reg_surplus: number;
+  primary_surplus_to_tfsa?: number;
+  spouse_surplus_to_tfsa?: number;
   rrsp_balance: number;
   tfsa_balance: number;
   fhsa_balance: number;

@@ -435,6 +435,15 @@ export default function ProjectionTable({
                     if (row.tfsa_contribution > 0) fundParts.push(`TFSA +${formatCurrency(pv(row.tfsa_contribution, yr))}`);
                     if (row.fhsa_contribution > 0) fundParts.push(`FHSA +${formatCurrency(pv(row.fhsa_contribution, yr))}`);
                     if (row.non_reg_contribution > 0) fundParts.push(`Non-Reg +${formatCurrency(pv(row.non_reg_contribution, yr))}`);
+                    if ((row.primary_surplus_to_tfsa ?? 0) > 0 || (row.spouse_surplus_to_tfsa ?? 0) > 0) {
+                      const primaryTfsaSurplus = row.primary_surplus_to_tfsa ?? 0;
+                      const spouseTfsaSurplus = row.spouse_surplus_to_tfsa ?? 0;
+                      if (spouseTfsaSurplus > 0) {
+                        fundParts.push(`TFSA surplus P +${formatCurrency(pv(primaryTfsaSurplus, yr))} / S +${formatCurrency(pv(spouseTfsaSurplus, yr))}`);
+                      } else {
+                        fundParts.push(`TFSA surplus +${formatCurrency(pv(primaryTfsaSurplus, yr))}`);
+                      }
+                    }
                     if (row.non_reg_surplus > 0) fundParts.push(`Non-Reg surplus +${formatCurrency(pv(row.non_reg_surplus, yr))}`);
                     const fundsLabel = fundParts.length > 0 ? fundParts.join(' / ') : '—';
 

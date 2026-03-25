@@ -45,10 +45,17 @@ interface AccountBalances {
 }
 
 interface ContributionPlan extends AccountBalances {
+  tfsa_primary: number;
+  tfsa_spouse: number;
   rrsp_salary_deduction_primary: number;
   rrsp_salary_deduction_spouse: number;
   salary_funded_after_tax_primary: number;
   salary_funded_after_tax_spouse: number;
+}
+
+interface TfsaAnnualLimitState {
+  actualLimit: number;
+  indexedLimit: number;
 }
 
 export interface ProjectionOverrides {
@@ -154,6 +161,8 @@ function calculateContributions(
     rrsp: 0,
     rrsp_spouse: 0,
     tfsa: 0,
+    tfsa_primary: 0,
+    tfsa_spouse: 0,
     fhsa: 0,
     non_reg_primary: 0,
     non_reg_primary_acb: 0,
@@ -182,6 +191,20 @@ function calculateContributions(
         } else {
           balances.rrsp += contribution;
           if (deductFromSalary) balances.rrsp_salary_deduction_primary += contribution;
+        }
+      } else if (account.account_type === 'tfsa') {
+        balances.tfsa += contribution;
+        if (account.person === 'spouse') {
+          balances.tfsa_spouse += contribution;
+        } else {
+          balances.tfsa_primary += contribution;
+        }
+        if (deductFromSalary) {
+          if (account.person === 'spouse') {
+            balances.salary_funded_after_tax_spouse += contribution;
+          } else {
+            balances.salary_funded_after_tax_primary += contribution;
+          }
         }
       } else if (account.account_type === 'non_reg') {
         if (account.person === 'spouse') {
@@ -920,20 +943,160 @@ export function buildReturnSequenceFromPeriods(
   });
 }
 
-const TFSA_ANNUAL_LIMIT_2026 = 7000;
+const TFSA_ANNUAL_LIMIT_BASE_YEAR = 2026;
+const TFSA_ANNUAL_LIMIT_BASE = 7000;
+const TFSA_ANNUAL_LIMIT_STEP = 500;
+const TFSA_HISTORICAL_LIMITS: Record<number, number> = {
+  2009: 5000,
+  2010: 5000,
+  2011: 5000,
+  2012: 5000,
+  2013: 5500,
+  2014: 5500,
+  2015: 10000,
+  2016: 5500,
+  2017: 5500,
+  2018: 5500,
+  2019: 6000,
+  2020: 6000,
+  2021: 6000,
+  2022: 6000,
+  2023: 6500,
+  2024: 7000,
+  2025: 7000,
+  2026: 7000,
+};
+
+function getTfsaEligibilityYear(age: number, currentYear: number): number {
+  const birthYear = currentYear - age;
+  return Math.max(2009, birthYear + 18);
+}
+
+function roundDownTfsaLimit(indexedLimit: number): number {
+  return Math.floor(indexedLimit / TFSA_ANNUAL_LIMIT_STEP) * TFSA_ANNUAL_LIMIT_STEP;
+}
+
+function buildTfsaAnnualLimitLookup(
+  endYear: number,
+  inflationSequence: number[] | undefined,
+  fallbackInflationRate: number
+): Map<number, TfsaAnnualLimitState> {
+  const lookup = new Map<number, TfsaAnnualLimitState>();
+
+  for (const [yearKey, limit] of Object.entries(TFSA_HISTORICAL_LIMITS)) {
+    const year = Number(yearKey);
+    if (year > endYear) continue;
+    lookup.set(year, { actualLimit: limit, indexedLimit: limit });
+  }
+
+  let indexedLimit = TFSA_ANNUAL_LIMIT_BASE;
+  let actualLimit = TFSA_ANNUAL_LIMIT_BASE;
+
+  for (let year = TFSA_ANNUAL_LIMIT_BASE_YEAR + 1; year <= endYear; year++) {
+    const yearFromStart = year - TFSA_ANNUAL_LIMIT_BASE_YEAR;
+    const effectiveInflation = inflationSequence?.[yearFromStart] ?? fallbackInflationRate;
+    indexedLimit *= 1 + effectiveInflation / 100;
+    actualLimit = Math.max(actualLimit, roundDownTfsaLimit(indexedLimit));
+    lookup.set(year, { actualLimit, indexedLimit });
+  }
+
+  return lookup;
+}
+
+function getTfsaAnnualLimit(
+  age: number,
+  currentYear: number,
+  annualLimitLookup: Map<number, TfsaAnnualLimitState>
+): number {
+  const eligibilityYear = getTfsaEligibilityYear(age, currentYear);
+  if (currentYear < eligibilityYear) return 0;
+  return annualLimitLookup.get(currentYear)?.actualLimit ?? 0;
+}
+
+function getCumulativeTfsaRoom(
+  age: number,
+  currentYear: number,
+  annualLimitLookup: Map<number, TfsaAnnualLimitState>
+): number {
+  const eligibilityYear = getTfsaEligibilityYear(age, currentYear);
+  if (currentYear < eligibilityYear) return 0;
+
+  let cumulativeRoom = 0;
+  for (let year = eligibilityYear; year <= currentYear; year++) {
+    cumulativeRoom += annualLimitLookup.get(year)?.actualLimit ?? 0;
+  }
+  return cumulativeRoom;
+}
 
 function getAvailableTfsaRoom(
   age: number,
-  _currentAge: number,
-  yearFromStart: number,
-  cumulativeContributed: number
+  currentYear: number,
+  cumulativeContributed: number,
+  annualLimitLookup: Map<number, TfsaAnnualLimitState>
 ): number {
-  const currentYear = 2026 + yearFromStart;
-  const birth_year = currentYear - age;
-  const tfsa_eligible_since = Math.max(2009, birth_year + 18);
-  const years_eligible = Math.max(0, currentYear - tfsa_eligible_since);
-  const cumulative_room = TFSA_ANNUAL_LIMIT_2026 * (years_eligible + 1);
-  return Math.max(0, cumulative_room - cumulativeContributed);
+  const cumulativeRoom = getCumulativeTfsaRoom(age, currentYear, annualLimitLookup);
+  return Math.max(0, cumulativeRoom - cumulativeContributed);
+}
+
+function getAnnualTfsaRoomRemaining(
+  age: number,
+  currentYear: number,
+  currentYearContributed: number,
+  annualLimitLookup: Map<number, TfsaAnnualLimitState>
+): number {
+  const annualLimit = getTfsaAnnualLimit(age, currentYear, annualLimitLookup);
+  return Math.max(0, annualLimit - currentYearContributed);
+}
+
+function allocateSurplusForPerson(
+  balances: AccountBalances,
+  person: 'primary' | 'spouse',
+  personAge: number,
+  currentYear: number,
+  surplus: number,
+  currentYearTfsaContributed: number,
+  cumulativeTfsaContributed: number,
+  annualLimitLookup: Map<number, TfsaAnnualLimitState>
+): {
+  tfsaContribution: number;
+  nonRegContribution: number;
+  currentYearTfsaContributed: number;
+  cumulativeTfsaContributed: number;
+} {
+  if (surplus <= 0) {
+    return {
+      tfsaContribution: 0,
+      nonRegContribution: 0,
+      currentYearTfsaContributed,
+      cumulativeTfsaContributed,
+    };
+  }
+
+  const cumulativeTfsaRoom = getAvailableTfsaRoom(personAge, currentYear, cumulativeTfsaContributed, annualLimitLookup);
+  const annualTfsaRoom = getAnnualTfsaRoomRemaining(personAge, currentYear, currentYearTfsaContributed, annualLimitLookup);
+  const tfsaContribution = Math.min(surplus, cumulativeTfsaRoom, annualTfsaRoom);
+  const nonRegContribution = Math.max(0, surplus - tfsaContribution);
+
+  if (tfsaContribution > 0) {
+    balances.tfsa += tfsaContribution;
+  }
+
+  if (nonRegContribution > 0) {
+    if (person === 'spouse') {
+      balances.non_reg_spouse += nonRegContribution;
+      balances.non_reg_spouse_acb += nonRegContribution;
+    } else {
+      balances.non_reg_primary += nonRegContribution;
+      balances.non_reg_primary_acb += nonRegContribution;
+    }
+  }
+
+  return {
+    tfsaContribution,
+    nonRegContribution,
+    currentYearTfsaContributed: currentYearTfsaContributed + tfsaContribution,
+    cumulativeTfsaContributed: cumulativeTfsaContributed + tfsaContribution,
+  };
 }
 
 function computeRrspExhaustionTarget(
@@ -1198,6 +1361,11 @@ export function runSingleProjection(
   const retirementReturnAssumption = effectiveReturnSequence
     ? getAverageReturn(effectiveReturnSequence.slice(retirementYearIndex)) || netExpectedReturn
     : netExpectedReturn;
+  const tfsaAnnualLimitLookup = buildTfsaAnnualLimitLookup(
+    TFSA_ANNUAL_LIMIT_BASE_YEAR + totalYears - 1,
+    inflationSequence,
+    scenario.inflation_rate
+  );
 
   const rrspExhaustionAnnualBase = (overrides?.disableRrspExhaustion)
     ? 0
@@ -1210,13 +1378,20 @@ export function runSingleProjection(
         rrspExhaustYearsBeforeEnd
       );
 
-  const initialTfsaBalance = balances.tfsa;
-  let cumulativeTfsaContributed = initialTfsaBalance;
+  let cumulativeTfsaContributed = {
+    primary: savingsAccounts
+      .filter(account => account.account_type === 'tfsa' && account.person === 'primary')
+      .reduce((sum, account) => sum + account.current_balance, 0),
+    spouse: savingsAccounts
+      .filter(account => account.account_type === 'tfsa' && account.person === 'spouse')
+      .reduce((sum, account) => sum + account.current_balance, 0),
+  };
 
   for (let year = 0; year < totalYears; year++) {
     const age = scenario.current_age + year;
     const spouseAge = isCouple && scenario.spouse_age != null ? scenario.spouse_age + year : age;
     const effectiveInflation = inflationSequence ? inflationSequence[year] : scenario.inflation_rate;
+    const currentCalendarYear = TFSA_ANNUAL_LIMIT_BASE_YEAR + year;
 
     const primarySalary = getIncomeForAge(
       age, incomeSources.filter(s => s.person === 'primary'), year, effectiveInflation
@@ -1259,6 +1434,8 @@ export function runSingleProjection(
       ? calcTieredCapitalGainInclusion((totalNonRegForGis - totalNonRegAcbForGis) * 0.04, year, effectiveInflation)
       : 0;
     const contributions = calculateContributions(age, spouseAge, savingsAccounts, year, effectiveInflation);
+    let currentYearTfsaContributedPrimary = 0;
+    let currentYearTfsaContributedSpouse = 0;
     const primaryRrspSalaryDeduction = contributions.rrsp_salary_deduction_primary;
     const spouseRrspSalaryDeduction = contributions.rrsp_salary_deduction_spouse;
     const totalRrspSalaryDeduction = primaryRrspSalaryDeduction + spouseRrspSalaryDeduction;
@@ -1276,23 +1453,64 @@ export function runSingleProjection(
 
     balances.rrsp += contributions.rrsp;
     balances.rrsp_spouse += contributions.rrsp_spouse;
-    const availableTfsaRoom = getAvailableTfsaRoom(age, scenario.current_age, year, cumulativeTfsaContributed);
-    const allowedTfsaContribution = Math.min(contributions.tfsa, availableTfsaRoom);
+    const primaryAvailableTfsaRoom = getAvailableTfsaRoom(
+      age,
+      currentCalendarYear,
+      cumulativeTfsaContributed.primary,
+      tfsaAnnualLimitLookup
+    );
+    const spouseAvailableTfsaRoom = isCouple
+      ? getAvailableTfsaRoom(
+          spouseAge,
+          currentCalendarYear,
+          cumulativeTfsaContributed.spouse,
+          tfsaAnnualLimitLookup
+        )
+      : 0;
+    const allowedPrimaryTfsaContribution = Math.min(contributions.tfsa_primary, primaryAvailableTfsaRoom);
+    const allowedSpouseTfsaContribution = Math.min(contributions.tfsa_spouse, spouseAvailableTfsaRoom);
+    const allowedTfsaContribution = allowedPrimaryTfsaContribution + allowedSpouseTfsaContribution;
     balances.tfsa += allowedTfsaContribution;
-    cumulativeTfsaContributed += allowedTfsaContribution;
+    cumulativeTfsaContributed.primary += allowedPrimaryTfsaContribution;
+    cumulativeTfsaContributed.spouse += allowedSpouseTfsaContribution;
+    currentYearTfsaContributedPrimary += allowedPrimaryTfsaContribution;
+    currentYearTfsaContributedSpouse += allowedSpouseTfsaContribution;
     balances.fhsa += contributions.fhsa;
     balances.non_reg_primary += contributions.non_reg_primary;
     balances.non_reg_primary_acb += contributions.non_reg_primary_acb;
     balances.non_reg_spouse += contributions.non_reg_spouse;
     balances.non_reg_spouse_acb += contributions.non_reg_spouse_acb;
 
+    let additionalTfsaContributionPrimary = 0;
+    let additionalTfsaContributionSpouse = 0;
     if (additionalMonthlySavings > 0 && age < effectiveRetirementAge) {
       const additionalAnnual = additionalMonthlySavings * 12;
       const inflatedAdditional = adjustForInflation(additionalAnnual, year, effectiveInflation);
-      const addlTfsaRoom = getAvailableTfsaRoom(age, scenario.current_age, year, cumulativeTfsaContributed);
-      const addlAllowed = Math.min(inflatedAdditional, addlTfsaRoom);
-      balances.tfsa += addlAllowed;
-      cumulativeTfsaContributed += addlAllowed;
+      const primaryAdditionalTarget = isCouple ? inflatedAdditional / 2 : inflatedAdditional;
+      const spouseAdditionalTarget = isCouple ? inflatedAdditional - primaryAdditionalTarget : 0;
+      const primaryAdditionalRoom = getAvailableTfsaRoom(
+        age,
+        currentCalendarYear,
+        cumulativeTfsaContributed.primary,
+        tfsaAnnualLimitLookup
+      );
+      additionalTfsaContributionPrimary = Math.min(primaryAdditionalTarget, primaryAdditionalRoom);
+      cumulativeTfsaContributed.primary += additionalTfsaContributionPrimary;
+      currentYearTfsaContributedPrimary += additionalTfsaContributionPrimary;
+
+      if (isCouple) {
+        const spouseAdditionalRoom = getAvailableTfsaRoom(
+          spouseAge,
+          currentCalendarYear,
+          cumulativeTfsaContributed.spouse,
+          tfsaAnnualLimitLookup
+        );
+        additionalTfsaContributionSpouse = Math.min(spouseAdditionalTarget, spouseAdditionalRoom);
+        cumulativeTfsaContributed.spouse += additionalTfsaContributionSpouse;
+        currentYearTfsaContributedSpouse += additionalTfsaContributionSpouse;
+      }
+
+      balances.tfsa += additionalTfsaContributionPrimary + additionalTfsaContributionSpouse;
     }
 
     for (const downsizingEvent of downsizingEvents) {
@@ -1601,31 +1819,63 @@ export function runSingleProjection(
     const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
     const expenseShortfall = Math.max(0, totalExpensesNeeded + mortgagePayment - afterTaxIncome);
 
-    const isNetExpensesOnly = effectiveWithdrawalStrategy === 'net_expenses_only';
-    let surplus = afterTaxIncome - totalExpensesNeeded - mortgagePayment;
+    const surplus = afterTaxIncome - totalExpensesNeeded - mortgagePayment;
+    let primarySurplusToTfsa = 0;
+    let spouseSurplusToTfsa = 0;
     let surplusToNonReg = 0;
 
-    if (isNetExpensesOnly) {
-      surplus = afterTaxIncome - totalExpensesNeeded;
-      surplusToNonReg = surplus > 0 ? surplus : 0;
-    } else {
-      surplusToNonReg = surplus > 0 ? surplus : 0;
-    }
-
-    if (surplusToNonReg > 0) {
+    if (surplus > 0) {
       if (isCouple) {
-        const primaryShare = 0.5;
-        const toPrimary = surplusToNonReg * primaryShare;
-        const toSpouse = surplusToNonReg - toPrimary;
-        balances.non_reg_primary += toPrimary;
-        balances.non_reg_primary_acb += toPrimary;
-        balances.non_reg_spouse += toSpouse;
-        balances.non_reg_spouse_acb += toSpouse;
+        const primarySurplus = surplus / 2;
+        const spouseSurplus = surplus - primarySurplus;
+        const primaryAllocation = allocateSurplusForPerson(
+          balances,
+          'primary',
+          age,
+          currentCalendarYear,
+          primarySurplus,
+          currentYearTfsaContributedPrimary,
+          cumulativeTfsaContributed.primary,
+          tfsaAnnualLimitLookup
+        );
+        primarySurplusToTfsa = primaryAllocation.tfsaContribution;
+        surplusToNonReg += primaryAllocation.nonRegContribution;
+        currentYearTfsaContributedPrimary = primaryAllocation.currentYearTfsaContributed;
+        cumulativeTfsaContributed.primary = primaryAllocation.cumulativeTfsaContributed;
+
+        const spouseAllocation = allocateSurplusForPerson(
+          balances,
+          'spouse',
+          spouseAge,
+          currentCalendarYear,
+          spouseSurplus,
+          currentYearTfsaContributedSpouse,
+          cumulativeTfsaContributed.spouse,
+          tfsaAnnualLimitLookup
+        );
+        spouseSurplusToTfsa = spouseAllocation.tfsaContribution;
+        surplusToNonReg += spouseAllocation.nonRegContribution;
+        currentYearTfsaContributedSpouse = spouseAllocation.currentYearTfsaContributed;
+        cumulativeTfsaContributed.spouse = spouseAllocation.cumulativeTfsaContributed;
       } else {
-        balances.non_reg_primary += surplusToNonReg;
-        balances.non_reg_primary_acb += surplusToNonReg;
+        const primaryAllocation = allocateSurplusForPerson(
+          balances,
+          'primary',
+          age,
+          currentCalendarYear,
+          surplus,
+          currentYearTfsaContributedPrimary,
+          cumulativeTfsaContributed.primary,
+          tfsaAnnualLimitLookup
+        );
+        primarySurplusToTfsa = primaryAllocation.tfsaContribution;
+        surplusToNonReg = primaryAllocation.nonRegContribution;
+        currentYearTfsaContributedPrimary = primaryAllocation.currentYearTfsaContributed;
+        cumulativeTfsaContributed.primary = primaryAllocation.cumulativeTfsaContributed;
       }
     }
+
+    const totalTfsaContribution = allowedTfsaContribution + additionalTfsaContributionPrimary + additionalTfsaContributionSpouse;
 
     const isLastYear = year === totalYears - 1;
     let terminalTax: number | undefined;
@@ -1704,12 +1954,14 @@ export function runSingleProjection(
       net_cash_flow: afterTaxIncome - totalExpensesNeeded - mortgagePayment,
       expense_shortfall: expenseShortfall,
       rrsp_contribution: contributions.rrsp + contributions.rrsp_spouse,
-      tfsa_contribution: contributions.tfsa,
+      tfsa_contribution: totalTfsaContribution,
       fhsa_contribution: contributions.fhsa,
       non_reg_contribution: contributions.non_reg_primary + contributions.non_reg_spouse,
       non_reg_contribution_primary: contributions.non_reg_primary,
       non_reg_contribution_spouse: contributions.non_reg_spouse,
       non_reg_surplus: surplusToNonReg,
+      primary_surplus_to_tfsa: primarySurplusToTfsa || undefined,
+      spouse_surplus_to_tfsa: spouseSurplusToTfsa || undefined,
       rrsp_balance: balances.rrsp + balances.rrsp_spouse,
       tfsa_balance: balances.tfsa,
       fhsa_balance: balances.fhsa,
