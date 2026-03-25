@@ -297,6 +297,10 @@ export default function ResultsDashboard({
     primary_residence: '#b91c1c',
   };
 
+  const currentPrimaryResidenceValue = scenario.include_primary_residence
+    ? (scenario.primary_residence_value ?? 0)
+    : savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0);
+
   const currentSlices: PortfolioSlice[] = [
     {
       label: 'RRSP',
@@ -325,7 +329,7 @@ export default function ResultsDashboard({
     },
     {
       label: 'Primary Residence',
-      value: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+      value: currentPrimaryResidenceValue,
       color: ACCOUNT_COLORS.primary_residence,
     },
   ].filter(s => s.value > 0);

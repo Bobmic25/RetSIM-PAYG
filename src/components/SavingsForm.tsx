@@ -143,7 +143,6 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
           </label>
           <select value={account.account_type} onChange={e => onUpdate(index, {
             account_type: e.target.value as any,
-            is_primary_residence: e.target.value === 'non_reg' ? account.is_primary_residence : false,
           })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg">
             <option value="rrsp">RRSP</option>
@@ -210,24 +209,6 @@ function AccountCard({ account, index, onUpdate, onRemove, retirementAge, tfsaLi
             </p>
           )}
         </div>
-        {account.account_type === 'non_reg' && (
-          <div className="md:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3">
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                checked={account.is_primary_residence || false}
-                onChange={e => onUpdate(index, { is_primary_residence: e.target.checked })}
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500"
-              />
-              <div className="space-y-1">
-                <span className="text-sm font-medium text-gray-800">Treat this non-registered asset as the primary residence</span>
-                <p className="text-xs text-gray-500">
-                  Primary-residence balances are excluded from terminal capital gains tax and can be used by downsizing events.
-                </p>
-              </div>
-            </label>
-          </div>
-        )}
         <div className="md:col-span-2">
           <div className="flex items-center gap-3">
             <Toggle

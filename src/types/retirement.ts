@@ -68,6 +68,8 @@ export interface Scenario {
   medical_expenses_annual?: number;
   charitable_donations_annual?: number;
   mortgage?: Mortgage;
+  include_primary_residence?: boolean;
+  primary_residence_value?: number;
   life_expectancy?: number;
   spouse_life_expectancy?: number;
   healthcare_inflation?: number;

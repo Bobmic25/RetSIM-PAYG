@@ -161,6 +161,8 @@ function App() {
     primary_has_dtc: false,
     medical_expenses_annual: 0,
     charitable_donations_annual: 0,
+    include_primary_residence: false,
+    primary_residence_value: 0,
     cad_equity_weight: 60,
     us_equity_weight: 40,
     int_equity_weight: 0,
@@ -479,6 +481,11 @@ function App() {
     oneTimeEvents: OneTimeEvent[];
   }) => {
     setMarketAssumptionsAuto(false);
+    const legacyPrimaryResidenceValue = data.savingsAccounts
+      .filter(account => account.account_type === 'non_reg' && account.is_primary_residence)
+      .reduce((sum, account) => sum + account.current_balance, 0);
+    const normalizedSavingsAccounts = data.savingsAccounts.filter(account => !(account.account_type === 'non_reg' && account.is_primary_residence));
+    const normalizedPrimaryResidenceValue = data.scenario.primary_residence_value ?? legacyPrimaryResidenceValue;
     const loadedCadWeight = data.scenario.cad_equity_weight ?? 60;
     const loadedUsWeight = data.scenario.us_equity_weight ?? 40;
     const loadedIntWeight = data.scenario.int_equity_weight ?? Math.max(0, 100 - loadedCadWeight - loadedUsWeight);
@@ -496,13 +503,15 @@ function App() {
       return_periods: data.scenario.return_periods ?? [],
       rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2,
       spouse_retirement_age: data.scenario.spouse_retirement_age ?? data.scenario.retirement_age,
+      include_primary_residence: normalizedPrimaryResidenceValue > 0,
+      primary_residence_value: normalizedPrimaryResidenceValue,
       cad_equity_weight: loadedCadWeight,
       us_equity_weight: loadedUsWeight,
       int_equity_weight: loadedIntWeight,
       return_std_dev: data.scenario.return_std_dev ?? loadedMarketAssumptions.stdDev,
     });
     setIncomeSources(data.incomeSources);
-    setSavingsAccounts(data.savingsAccounts);
+    setSavingsAccounts(normalizedSavingsAccounts);
     setExpenseLadder(data.expenseLadder);
     setHealthcareSteps(data.healthcareSteps ?? []);
     setOneTimeEvents(data.oneTimeEvents);

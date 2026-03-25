@@ -1319,8 +1319,12 @@ export function runSingleProjection(
     non_reg_primary_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
     non_reg_spouse: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
     non_reg_spouse_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
-    primary_residence: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
-    primary_residence_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    primary_residence: scenario.include_primary_residence
+      ? (scenario.primary_residence_value ?? 0)
+      : savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    primary_residence_acb: scenario.include_primary_residence
+      ? (scenario.primary_residence_value ?? 0)
+      : savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
   };
   let remainingMortgageBalance = Math.max(0, scenario.mortgage?.balance ?? 0);
   let permanentExpenseMultiplier = expenseMultiplier;

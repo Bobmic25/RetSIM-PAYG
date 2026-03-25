@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { FolderOpen, HelpCircle, X } from 'lucide-react';
 import { Scenario, Province, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
@@ -22,7 +22,7 @@ interface ProfileFormProps {
   inflationData?: LiveInflationData | null;
 }
 
-type ProfileHelpTopic = 'dtc' | 'medical' | 'donations' | 'mortgage_balance' | 'mortgage_rate' | 'mortgage_amortization';
+type ProfileHelpTopic = 'dtc' | 'medical' | 'donations' | 'mortgage_balance' | 'mortgage_rate' | 'mortgage_amortization' | 'primary_residence';
 
 const PROFILE_HELP_CONTENT: Record<ProfileHelpTopic, { title: string; lines: string[] }> = {
   dtc: {
@@ -71,6 +71,14 @@ const PROFILE_HELP_CONTENT: Record<ProfileHelpTopic, { title: string; lines: str
       'Enter the age at which the mortgage is expected to be fully repaid.',
       'For many new insured Canadian mortgages, maximum amortization is often 25 years, while uninsured mortgages may vary by lender and product.',
       'The tool uses this age to spread repayment over the remaining years of the loan.',
+    ],
+  },
+  primary_residence: {
+    title: 'Primary Residence Market Value',
+    lines: [
+      'Enter the current market value of the home you want treated as your primary residence in the simulation.',
+      'Mortgage balance is entered separately under the mortgage section, so only the property value belongs here.',
+      'This value is used for net worth, downsizing events, and terminal estate treatment rather than as a taxable non-registered investment account.',
     ],
   },
 };
@@ -283,10 +291,15 @@ export default function ProfileForm({ scenario, onChange, onLoadData, inflationD
   };
   const [showPlanningCredits, setShowPlanningCredits] = useState(false);
   const [showMortgage, setShowMortgage] = useState(false);
+  const [showPrimaryResidence, setShowPrimaryResidence] = useState(Boolean(scenario.include_primary_residence || (scenario.primary_residence_value ?? 0) > 0));
   const [activeHelpTopic, setActiveHelpTopic] = useState<ProfileHelpTopic | null>(null);
   const inflationNote = inflationData
     ? `Latest published CPI inflation: ${inflationData.latestRate.toFixed(1)}% (${new Date(inflationData.latestObservationDate).toLocaleDateString('en-CA', { year: 'numeric', month: 'long' })}). Prior calendar-year average: ${inflationData.lastYearAverage.toFixed(1)}%. Rolling 15-year average: ${inflationData.fifteenYearAverage.toFixed(1)}%. The default assumption uses the 15-year average.${inflationData.isLive ? '' : ' Cached data is currently being used because the live lookup was unavailable.'}`
     : 'Inflation data will be fetched when the app starts. If the live lookup is unavailable, the app will continue using the most recently cached inflation data.';
+
+  useEffect(() => {
+    setShowPrimaryResidence(Boolean(scenario.include_primary_residence || (scenario.primary_residence_value ?? 0) > 0));
+  }, [scenario.include_primary_residence, scenario.primary_residence_value]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -650,6 +663,60 @@ export default function ProfileForm({ scenario, onChange, onLoadData, inflationD
             </>
           )}
         </div>
+      </div>
+
+      <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 space-y-4">
+        <label className="flex items-start gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showPrimaryResidence}
+            onChange={e => {
+              const checked = e.target.checked;
+              setShowPrimaryResidence(checked);
+              if (!checked) {
+                onChange({
+                  include_primary_residence: false,
+                  primary_residence_value: 0,
+                });
+              } else {
+                onChange({ include_primary_residence: true });
+              }
+            }}
+            className="w-4 h-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500"
+          />
+          <div>
+            <span className="text-sm font-medium text-gray-800">Do you want to include a primary residence in the simulation?</span>
+            <p className="text-xs text-rose-700 mt-1">
+              Use this to model home equity separately from taxable non-registered investments.
+            </p>
+          </div>
+        </label>
+
+        {showPrimaryResidence && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <span className="inline-flex items-center gap-1.5">
+                  Current Market Value
+                  <FieldHelpButton onClick={() => setActiveHelpTopic('primary_residence')} />
+                </span>
+              </label>
+              <input
+                type="text"
+                value={scenario.primary_residence_value ? formatCurrency(scenario.primary_residence_value) : ''}
+                onChange={e => onChange({
+                  include_primary_residence: true,
+                  primary_residence_value: parseCurrency(e.target.value),
+                })}
+                placeholder="$0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+              />
+              <p className="text-xs text-rose-700 mt-1.5">
+                Enter the home's current market value only. Mortgage balance is modeled separately above.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
