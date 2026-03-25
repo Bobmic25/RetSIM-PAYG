@@ -386,30 +386,8 @@ export default function ReturnsForm({
               <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900">
                 Geographic equity sliders affect only the stock portion of the portfolio. For example, a 60/40 stock-to-non-equity portfolio with a 60/40 Canada-US equity mix is modelled as 36% Canada equity, 24% US equity, and 40% non-equity.
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-red-700">Canada</div>
-                  <div className="mt-1 text-lg font-bold text-red-900">{effectiveCadPortfolioPct.toFixed(1)}%</div>
-                  <div className="text-[11px] text-red-700">effective portfolio weight</div>
-                </div>
-                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-center">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">US</div>
-                  <div className="mt-1 text-lg font-bold text-blue-900">{effectiveUsPortfolioPct.toFixed(1)}%</div>
-                  <div className="text-[11px] text-blue-700">effective portfolio weight</div>
-                </div>
-                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-center">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">International</div>
-                  <div className="mt-1 text-lg font-bold text-violet-900">{effectiveIntlPortfolioPct.toFixed(1)}%</div>
-                  <div className="text-[11px] text-violet-700">effective portfolio weight</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">Non-Equity</div>
-                  <div className="mt-1 text-lg font-bold text-slate-900">{effectiveNonEquityPortfolioPct.toFixed(1)}%</div>
-                  <div className="text-[11px] text-slate-700">effective portfolio weight</div>
-                </div>
-              </div>
               <p className="mt-2 text-xs text-gray-500">
-                Live example: {equitySharePct}% equity x Canada {estimatedMarketAssumptions.cadEquityWeight.toFixed(1)}% = {effectiveCadPortfolioPct.toFixed(1)}% of the full portfolio, and likewise for the US and International sleeves.
+                Right now, that works out to {effectiveCadPortfolioPct.toFixed(1)}% Canada, {effectiveUsPortfolioPct.toFixed(1)}% US, {effectiveIntlPortfolioPct.toFixed(1)}% International, and {effectiveNonEquityPortfolioPct.toFixed(1)}% non-equity.
               </p>
               <p className="mt-2 text-xs italic text-gray-500">
                 {usingAssetAllocations
