@@ -424,7 +424,7 @@ export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileF
             onChange={e => onChange({ inflation_rate: parseFloat(e.target.value) || 0 })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
           <p className="text-xs text-blue-700 mt-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 leading-snug">
-            Current Canadian yearly inflation rate (CPI) as of January 2026 is 2.3% based on Statistics Canada data. The 2025 annual average was 2.1%.
+            Current Canadian yearly inflation rate (CPI) as of January 2026 is 2.3% based on Statistics Canada data. The 2025 annual average was 2.1%, and the 5-year average for 2021-2025 was about 3.7%. The default setting uses that 5-year average.
           </p>
         </div>
       </div>

@@ -128,6 +128,7 @@ const IconNav = ({ currentStep, onNavigate, highestVisited }: { currentStep: num
 
 
 function App() {
+  const defaultInflationRate = 3.7;
   const initialMarketAssumptions = estimateMarketAssumptions({
     cad_equity_weight: 60,
     us_equity_weight: 40,
@@ -143,7 +144,7 @@ function App() {
     spouse_retirement_age: 65,
     plan_duration: 30,
     province: 'ON' as Province,
-    inflation_rate: 2.5,
+    inflation_rate: defaultInflationRate,
     return_type: 'linear',
     expected_return: initialMarketAssumptions.expectedReturn,
     management_fee_pct: DEFAULT_MANAGEMENT_FEE_PCT,

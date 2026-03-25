@@ -154,7 +154,7 @@ export default function SaveLoadScenarios({
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-1">Save & Load Scenarios</h3>
         <p className="text-sm text-gray-600">
-          Scenarios are saved locally in your browser. Export to JSON to back them up or share.
+          Scenarios are saved locally in your browser and can be used later for comparison of results. Export to JSON to back them up or share.
         </p>
       </div>
 
@@ -203,6 +203,9 @@ export default function SaveLoadScenarios({
 
       <div className="bg-white border border-gray-200 rounded-lg p-5">
         <h4 className="font-semibold text-gray-900 mb-4">Saved Scenarios</h4>
+        <p className="text-sm text-gray-600 mb-4">
+          These browser-saved scenarios can be loaded again or used as saved comparison snapshots when reviewing result strategies.
+        </p>
         {savedScenarios.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <p>No saved scenarios yet.</p>
