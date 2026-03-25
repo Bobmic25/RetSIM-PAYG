@@ -19,7 +19,8 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
         name: '',
         age: Math.min(MAX_AGE, 65),
         amount: 0,
-        tax_rate: undefined
+        tax_rate: undefined,
+        expense_reduction_pct: undefined
       }
     ]);
   };
@@ -39,7 +40,7 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-lg font-semibold text-gray-900">One-Time Events</h3>
-          <p className="text-sm text-gray-600">Inheritances, major purchases, or one-time expenses</p>
+          <p className="text-sm text-gray-600">Inheritances, major purchases, one-time expenses, or downsizing events</p>
         </div>
         <button
           type="button"
@@ -89,6 +90,7 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
               >
                 <option value="expense">Expense</option>
                 <option value="inheritance">Inheritance</option>
+                <option value="downsizing">Downsizing</option>
               </select>
             </div>
 
@@ -120,7 +122,7 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
                 type="text"
                 value={event.amount ? formatCurrency(event.amount) : ''}
                 onChange={(e) => updateEvent(index, { amount: parseCurrency(e.target.value) })}
-                placeholder="$0"
+                placeholder={event.event_type === 'downsizing' ? '$0 net proceeds' : '$0'}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
               />
             </div>
@@ -152,6 +154,40 @@ export default function OneTimeEventsForm({ events, onChange, scenario }: OneTim
                 <p className="text-xs text-gray-500 mt-1">
                   Leave blank if no tax applies. The net amount after tax will be added to your cash flow.
                 </p>
+              </div>
+            )}
+
+            {event.event_type === 'downsizing' && (
+              <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Net Proceeds Moved to Non-Registered Assets
+                    </label>
+                    <p className="text-xs text-gray-500">
+                      Enter the net amount released from selling part of the primary residence.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Permanent Living Expense Reduction (%)</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        value={event.expense_reduction_pct ?? ''}
+                        onChange={(e) => updateEvent(index, { expense_reduction_pct: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                        placeholder="0"
+                        min="0"
+                        max="100"
+                        step="1"
+                        className="w-32 px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                      <span className="text-sm text-gray-600">%</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Applied from this age onward to future living expenses.
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -34,6 +34,7 @@ function SuggestionCard({
   };
 
   const Icon = icons[suggestion.id] || Lightbulb;
+  const isTradeoff = suggestion.kind === 'tradeoff';
 
   const renderMetricComparison = () => {
     if (!isActive || !defaultMetrics || !optimizedMetrics) return null;
@@ -86,27 +87,44 @@ function SuggestionCard({
   return (
     <div className={`border rounded-lg p-4 transition-all ${
       isActive
-        ? 'border-blue-500 bg-blue-50'
-        : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+        ? isTradeoff
+          ? 'border-amber-500 bg-amber-50'
+          : 'border-blue-500 bg-blue-50'
+        : isTradeoff
+          ? 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:shadow-md'
+          : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
     }`}>
       <div className="flex items-start gap-3">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-          isActive ? 'bg-blue-600' : 'bg-blue-100'
+          isActive
+            ? isTradeoff ? 'bg-amber-500' : 'bg-blue-600'
+            : isTradeoff ? 'bg-amber-100' : 'bg-blue-100'
         }`}>
-          <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-blue-600'}`} />
+          <Icon className={`w-5 h-5 ${isActive ? 'text-white' : isTradeoff ? 'text-amber-700' : 'text-blue-600'}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-semibold text-gray-900 mb-1">{suggestion.title}</h4>
+          <div className="flex items-center gap-2 mb-1">
+            <h4 className="text-sm font-semibold text-gray-900">{suggestion.title}</h4>
+            {isTradeoff && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+                Tradeoff
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-600 mb-2">{suggestion.description}</p>
-          <p className="text-xs text-blue-700 font-medium">{suggestion.benefit}</p>
+          <p className={`text-xs font-medium ${isTradeoff ? 'text-amber-700' : 'text-blue-700'}`}>{suggestion.benefit}</p>
           {renderMetricComparison()}
           <button
             onClick={onApply}
             disabled={isActive}
             className={`mt-3 w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               isActive
-                ? 'bg-blue-600 text-white cursor-default'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                ? isTradeoff
+                  ? 'bg-amber-500 text-white cursor-default'
+                  : 'bg-blue-600 text-white cursor-default'
+                : isTradeoff
+                  ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
           >
             {isActive ? 'Applied' : 'Apply Suggestion'}
@@ -127,6 +145,8 @@ export default function AISuggestionsPanel({
 }: AISuggestionsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const toggleExpanded = () => setIsExpanded(current => !current);
+  const improvements = suggestions.filter(suggestion => suggestion.kind === 'improvement');
+  const tradeoffs = suggestions.filter(suggestion => suggestion.kind === 'tradeoff');
 
   if (suggestions.length === 0) {
     return (
@@ -201,22 +221,48 @@ export default function AISuggestionsPanel({
       {isExpanded && (
         <>
           <p className="text-sm text-gray-600 mb-4">
-            We analyzed your retirement plan and found {suggestions.length} potential optimization{suggestions.length !== 1 ? 's' : ''}.
+            We analyzed your retirement plan and found {improvements.length} improvement{improvements.length !== 1 ? 's' : ''}
+            {tradeoffs.length > 0 ? ` and ${tradeoffs.length} tradeoff${tradeoffs.length !== 1 ? 's' : ''}` : ''}.
             Click to apply and compare results.
           </p>
 
-          <div className="space-y-3">
-            {suggestions.map(suggestion => (
-              <SuggestionCard
-                key={suggestion.id}
-                suggestion={suggestion}
-                isActive={activeSuggestion?.id === suggestion.id}
-                onApply={() => onApplySuggestion(suggestion)}
-                defaultMetrics={defaultMetrics}
-                optimizedMetrics={optimizedMetrics}
-              />
-            ))}
-          </div>
+          {improvements.length > 0 && (
+            <div className="space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900">Suggested Improvements</h4>
+                <p className="text-xs text-gray-500 mt-1">Strategies that improve at least one comparison dimension without harming the other.</p>
+              </div>
+              {improvements.map(suggestion => (
+                <SuggestionCard
+                  key={suggestion.id}
+                  suggestion={suggestion}
+                  isActive={activeSuggestion?.id === suggestion.id}
+                  onApply={() => onApplySuggestion(suggestion)}
+                  defaultMetrics={defaultMetrics}
+                  optimizedMetrics={optimizedMetrics}
+                />
+              ))}
+            </div>
+          )}
+
+          {tradeoffs.length > 0 && (
+            <div className="space-y-3 mt-6">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900">Tradeoffs To Review</h4>
+                <p className="text-xs text-gray-500 mt-1">These strategies change outcomes in ways that may still be useful depending on your priorities.</p>
+              </div>
+              {tradeoffs.map(suggestion => (
+                <SuggestionCard
+                  key={suggestion.id}
+                  suggestion={suggestion}
+                  isActive={activeSuggestion?.id === suggestion.id}
+                  onApply={() => onApplySuggestion(suggestion)}
+                  defaultMetrics={defaultMetrics}
+                  optimizedMetrics={optimizedMetrics}
+                />
+              ))}
+            </div>
+          )}
 
           {activeSuggestion && (
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">

@@ -222,10 +222,17 @@ export default function ResultsDashboard({
   // Generate suggestions when projections change
   useEffect(() => {
     if (projections.length > 0) {
-      const generatedSuggestions = generateSuggestions(projections, scenario, monteCarloResult);
+      const generatedSuggestions = generateSuggestions(projections, scenario, monteCarloResult, {
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        assetAllocations,
+      });
       setSuggestions(generatedSuggestions);
     }
-  }, [projections, scenario, monteCarloResult]);
+  }, [projections, scenario, monteCarloResult, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents, assetAllocations]);
 
   // When the AI Suggested Improvements panel is opened, switch to the Data Table tab
   // and trigger the CPP/OAS optimization so the results appear below the suggestions.
@@ -286,7 +293,16 @@ export default function ResultsDashboard({
     representativeYear.salary,
     representativeYear.oas,
     representativeYear.year - 1,
-    scenario.inflation_rate
+    scenario.inflation_rate,
+    undefined,
+    representativeYear.age,
+    representativeYear.cpp + representativeYear.rrsp_withdrawal + representativeYear.db_pension,
+    0,
+    {
+      hasDisabilityTaxCredit: scenario.primary_has_dtc ?? false,
+      medicalExpenses: presentValue(scenario.medical_expenses_annual ?? 0, representativeYear.year - 1, -scenario.inflation_rate),
+      charitableDonations: presentValue(scenario.charitable_donations_annual ?? 0, representativeYear.year - 1, -scenario.inflation_rate),
+    }
   );
 
   const ACCOUNT_COLORS: Record<string, string> = {
@@ -295,6 +311,7 @@ export default function ResultsDashboard({
     tfsa: '#16a34a',
     fhsa: '#0891b2',
     non_reg: '#d97706',
+    primary_residence: '#b91c1c',
   };
 
   const currentSlices: PortfolioSlice[] = [
@@ -320,18 +337,24 @@ export default function ResultsDashboard({
     },
     {
       label: 'Non-Registered',
-      value: savingsAccounts.filter(a => a.account_type === 'non_reg').reduce((s, a) => s + a.current_balance, 0),
+      value: savingsAccounts.filter(a => a.account_type === 'non_reg' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
       color: ACCOUNT_COLORS.non_reg,
+    },
+    {
+      label: 'Primary Residence',
+      value: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+      color: ACCOUNT_COLORS.primary_residence,
     },
   ].filter(s => s.value > 0);
 
-  const currentNetWorth = currentSlices.reduce((s, sl) => s + sl.value, 0);
+  const currentNetWorth = currentSlices.reduce((s, sl) => s + sl.value, 0) - (scenario.mortgage?.balance ?? 0);
 
   const finalSlices: PortfolioSlice[] = [
     { label: 'RRSP', value: pv(lastYear.rrsp_balance, lastYear.year - 1), color: ACCOUNT_COLORS.rrsp },
     { label: 'TFSA', value: pv(lastYear.tfsa_balance, lastYear.year - 1), color: ACCOUNT_COLORS.tfsa },
     { label: 'FHSA', value: pv(lastYear.fhsa_balance, lastYear.year - 1), color: ACCOUNT_COLORS.fhsa },
     { label: 'Non-Registered', value: pv(lastYear.non_reg_balance, lastYear.year - 1), color: ACCOUNT_COLORS.non_reg },
+    { label: 'Primary Residence', value: pv(lastYear.primary_residence_balance || 0, lastYear.year - 1), color: ACCOUNT_COLORS.primary_residence },
   ].filter(s => s.value > 0);
 
   const strategySummaryCards = useMemo(() => {

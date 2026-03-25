@@ -148,7 +148,7 @@ const VISIBLE_ROWS = 10;
 const TABLE_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS;
 
 export default function ProjectionTable({
-  projections, scenario, incomeSources, savingsAccounts, expenseLadder, oneTimeEvents,
+  projections, scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
   showTodayDollars = false, inflationRate = 2.5, autoRunTrigger = 0
 }: ProjectionTableProps) {
   const [showMainTable, setShowMainTable] = useState(true);
