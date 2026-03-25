@@ -33,6 +33,7 @@ import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
 import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataService';
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import { estimateMarketAssumptions } from './lib/marketAssumptions';
+import { DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
 
 interface SavedResult {
@@ -149,7 +150,7 @@ function App() {
     inflation_rate: 2.5,
     return_type: 'linear',
     expected_return: initialMarketAssumptions.expectedReturn,
-    management_fee_pct: 1.4,
+    management_fee_pct: DEFAULT_MANAGEMENT_FEE_PCT,
     return_std_dev: initialMarketAssumptions.stdDev,
     return_periods: [],
     monte_carlo_iterations: 1000,
@@ -467,7 +468,7 @@ function App() {
       ...data.scenario,
       return_type: data.scenario.return_type ?? 'linear',
       expected_return: data.scenario.expected_return ?? loadedMarketAssumptions.expectedReturn,
-      management_fee_pct: data.scenario.management_fee_pct ?? 1.4,
+      management_fee_pct: data.scenario.management_fee_pct ?? DEFAULT_MANAGEMENT_FEE_PCT,
       return_periods: data.scenario.return_periods ?? [],
       rrsp_exhaustion_years_before_end: data.scenario.rrsp_exhaustion_years_before_end ?? 2,
       spouse_retirement_age: data.scenario.spouse_retirement_age ?? data.scenario.retirement_age,

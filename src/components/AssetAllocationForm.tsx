@@ -292,7 +292,7 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
                     <span className="ml-2 text-xs font-normal text-gray-500">({alloc.stocks}% of this account is currently in stocks)</span>
                   </h5>
                   <p className="text-xs text-gray-500">
-                    These sliders split only the stock sleeve of this account between Canada, US, and International. The Monte Carlo engine then scales that equity mix by this account's actual stock percentage.
+                    Define how your stock portfolio is distributed globally. The simulation will automatically account for your bond/cash allocation based on your risk profile.
                   </p>
                 </div>
                 <div className="space-y-2">

@@ -24,6 +24,7 @@ import {
   generateStochasticInflationSequence,
   runMonteCarloMemoryEfficient
 } from './monteCarloEngine';
+import { DEFAULT_MANAGEMENT_FEE_PCT } from './constants';
 
 interface AccountBalances {
   rrsp: number;
@@ -844,11 +845,11 @@ function getPortfolioGeoWeights(
 }
 
 function getNetExpectedReturn(scenario: Scenario): number {
-  return scenario.expected_return - (scenario.management_fee_pct ?? 0);
+  return scenario.expected_return - (scenario.management_fee_pct ?? DEFAULT_MANAGEMENT_FEE_PCT);
 }
 
 function getNetReturnFromGross(grossReturn: number, scenario: Scenario): number {
-  return grossReturn - (scenario.management_fee_pct ?? 0);
+  return grossReturn - (scenario.management_fee_pct ?? DEFAULT_MANAGEMENT_FEE_PCT);
 }
 
 function getAverageReturn(returns: number[]): number {

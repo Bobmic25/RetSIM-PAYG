@@ -3,6 +3,7 @@ import { Plus, Trash2, HelpCircle, X } from 'lucide-react';
 import { Scenario } from '../types/retirement';
 import { MONTE_CARLO_MAX_ITERATIONS, MONTE_CARLO_DEFAULT_ITERATIONS } from '../lib/monteCarloEngine';
 import { MarketAssumptions } from '../lib/marketAssumptions';
+import { DEFAULT_MANAGEMENT_FEE_PCT } from '../lib/constants';
 
 interface ReturnsFormProps {
   scenario: Scenario;
@@ -194,7 +195,8 @@ export default function ReturnsForm({
   const currentYear = new Date().getFullYear();
   const [showMonteCarloInfo, setShowMonteCarloInfo] = useState(false);
   const returnPeriods = scenario.return_periods ?? [];
-  const netExpectedReturn = scenario.expected_return - (scenario.management_fee_pct ?? 0);
+  const effectiveManagementFee = scenario.management_fee_pct ?? DEFAULT_MANAGEMENT_FEE_PCT;
+  const netExpectedReturn = scenario.expected_return - effectiveManagementFee;
   const equitySharePct = Math.round(estimatedMarketAssumptions.totalEquityWeight * 100);
   const fixedIncomeSharePct = Math.round(estimatedMarketAssumptions.fixedIncomeWeight * 100);
   const usingAssetAllocations = estimatedMarketAssumptions.source === 'allocations';
@@ -323,12 +325,12 @@ export default function ReturnsForm({
             step="0.1"
             min={0}
             max={10}
-            value={scenario.management_fee_pct ?? 1.4}
+            value={scenario.management_fee_pct ?? DEFAULT_MANAGEMENT_FEE_PCT}
             onChange={e => onChange({ management_fee_pct: Math.max(0, Math.min(10, parseFloat(e.target.value) || 0)) })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Applied against gross return so projections use a net return of {netExpectedReturn.toFixed(1)}% before taxes.
+            Applied against gross return so projections use a net return of {netExpectedReturn.toFixed(1)}% before taxes. Blank scenarios default to {DEFAULT_MANAGEMENT_FEE_PCT.toFixed(1)}%.
           </p>
         </div>
 
@@ -370,53 +372,52 @@ export default function ReturnsForm({
           onChange={(id) => onChange({ withdrawal_strategy: id })}
         />
 
-        <div className="md:col-span-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h4 className="font-semibold text-gray-900">Monte Carlo Model Feedback</h4>
-              <p className="mt-1 text-sm text-gray-600">
-                The live model is currently using an effective mix of {equitySharePct}% stocks and {fixedIncomeSharePct}% non-equity assets.
-              </p>
-              <p className="mt-1 text-xs text-gray-500">
-                Within the stock sleeve, geographic equity mix is Canada {estimatedMarketAssumptions.cadEquityWeight.toFixed(1)}%, US {estimatedMarketAssumptions.usEquityWeight.toFixed(1)}%, International {estimatedMarketAssumptions.intEquityWeight.toFixed(1)}%.
-              </p>
-              <p className="mt-1 text-xs text-gray-500">
-                FP Canada default assumptions imply {estimatedMarketAssumptions.expectedReturn.toFixed(1)}% expected return and {estimatedMarketAssumptions.stdDev.toFixed(1)}% volatility before management fees.
-              </p>
-              <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900">
-                Geographic equity sliders affect only the stock portion of the portfolio. For example, a 60/40 stock-to-non-equity portfolio with a 60/40 Canada-US equity mix is modelled as 36% Canada equity, 24% US equity, and 40% non-equity.
+        {scenario.return_type === 'monte_carlo' && (
+          <div className="md:col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h4 className="font-semibold text-blue-900">Monte Carlo Model Feedback</h4>
+                <p className="mt-1 text-sm text-blue-900">
+                  Effective portfolio composition: {equitySharePct}% Stocks / {fixedIncomeSharePct}% Non-Equity.
+                </p>
+                <p className="mt-1 text-xs text-blue-800">
+                  Geographic equity mix: Canada {estimatedMarketAssumptions.cadEquityWeight.toFixed(1)}%, US {estimatedMarketAssumptions.usEquityWeight.toFixed(1)}%, International {estimatedMarketAssumptions.intEquityWeight.toFixed(1)}%.
+                </p>
+                <p className="mt-2 text-sm text-blue-900">
+                  Monte Carlo Model: Your plan is simulated using a {equitySharePct}% Equity and {fixedIncomeSharePct}% Non-Equity split. Geographic weights are applied to the equity portion, while the non-equity portion (Bonds/Cash) is modeled with a lower 5% standard deviation to provide portfolio stability. Net returns shown here are net of {effectiveManagementFee.toFixed(1)}% management fees.
+                </p>
+                <p className="mt-2 text-xs text-blue-800">
+                  Right now, that works out to {effectiveCadPortfolioPct.toFixed(1)}% Canada, {effectiveUsPortfolioPct.toFixed(1)}% US, {effectiveIntlPortfolioPct.toFixed(1)}% International, and {effectiveNonEquityPortfolioPct.toFixed(1)}% non-equity.
+                </p>
+                <p className="mt-2 text-xs italic text-blue-800">
+                  {usingAssetAllocations
+                    ? 'These values are being driven by the Assets tab. The geographic sliders below act only as a fallback when account-level allocations have not been customized.'
+                    : 'Without account-level allocations, the model assumes a 60/40 stock-to-non-equity mix and applies the geographic sliders only within that 60% equity sleeve.'}
+                </p>
               </div>
-              <p className="mt-2 text-xs text-gray-500">
-                Right now, that works out to {effectiveCadPortfolioPct.toFixed(1)}% Canada, {effectiveUsPortfolioPct.toFixed(1)}% US, {effectiveIntlPortfolioPct.toFixed(1)}% International, and {effectiveNonEquityPortfolioPct.toFixed(1)}% non-equity.
-              </p>
-              <p className="mt-2 text-xs italic text-gray-500">
-                {usingAssetAllocations
-                  ? 'These values are being driven by the Assets tab. The geographic sliders below act only as a fallback when account-level allocations have not been customized.'
-                  : 'Without account-level allocations, the model assumes a 60/40 stock-to-non-equity mix and applies the geographic sliders only within that 60% equity sleeve.'}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-                <input
-                  type="checkbox"
-                  checked={marketAssumptionsAuto}
-                  onChange={e => {
-                    const enabled = e.target.checked;
-                    onSetMarketAssumptionsAuto(enabled);
-                    if (enabled) {
-                      onChange({
-                        expected_return: estimatedMarketAssumptions.expectedReturn,
-                        return_std_dev: estimatedMarketAssumptions.stdDev,
-                      });
-                    }
-                  }}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Auto-estimate from allocation
-              </label>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-blue-900 select-none">
+                  <input
+                    type="checkbox"
+                    checked={marketAssumptionsAuto}
+                    onChange={e => {
+                      const enabled = e.target.checked;
+                      onSetMarketAssumptionsAuto(enabled);
+                      if (enabled) {
+                        onChange({
+                          expected_return: estimatedMarketAssumptions.expectedReturn,
+                          return_std_dev: estimatedMarketAssumptions.stdDev,
+                        });
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Auto-estimate from allocation
+                </label>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -550,7 +551,7 @@ export default function ReturnsForm({
               <div className="flex flex-wrap gap-2">
                 {returnPeriods.map((p, i) => (
                   <span key={i} className={`px-3 py-1 rounded-full text-sm font-medium ${p.return_rate < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                    {p.from_year}-{p.to_year}: gross {p.return_rate > 0 ? '+' : ''}{p.return_rate}% / net {(p.return_rate - (scenario.management_fee_pct ?? 0)) > 0 ? '+' : ''}{(p.return_rate - (scenario.management_fee_pct ?? 0)).toFixed(1)}%
+                    {p.from_year}-{p.to_year}: gross {p.return_rate > 0 ? '+' : ''}{p.return_rate}% / net {(p.return_rate - effectiveManagementFee) > 0 ? '+' : ''}{(p.return_rate - effectiveManagementFee).toFixed(1)}%
                   </span>
                 ))}
               </div>

@@ -1,0 +1,1 @@
+export const DEFAULT_MANAGEMENT_FEE_PCT = 1.4;
