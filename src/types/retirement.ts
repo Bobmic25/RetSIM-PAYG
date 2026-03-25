@@ -231,4 +231,30 @@ export interface MonteCarloResult {
   iterations: number;
 }
 
+export interface SavedComparisonResult {
+  name: string;
+  projections: YearlyProjection[];
+  color: string;
+}
+
+export interface ComparisonSeriesDefinition {
+  key: string;
+  label: string;
+  color: string;
+  sourceType: 'strategy' | 'saved';
+  strokeDasharray?: string;
+}
+
+export interface ComparisonDataPoint {
+  age: number;
+  [key: string]: number | string | undefined;
+}
+
+export interface ComparisonDataset {
+  cashFlowData: ComparisonDataPoint[];
+  taxData: ComparisonDataPoint[];
+  series: ComparisonSeriesDefinition[];
+  strategyProjections: Record<WithdrawalStrategy, YearlyProjection[]>;
+}
+
 export type Province = 'AB' | 'BC' | 'MB' | 'NB' | 'NL' | 'NT' | 'NS' | 'NU' | 'ON' | 'PE' | 'QC' | 'SK' | 'YT';

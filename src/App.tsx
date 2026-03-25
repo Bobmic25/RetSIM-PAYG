@@ -27,6 +27,7 @@ import {
   AssetAllocation,
   HealthcareStep,
   Province,
+  SavedComparisonResult,
 } from './types/retirement';
 import { runSingleProjection, type ProjectionOverrides } from './lib/projectionEngine';
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
@@ -36,12 +37,6 @@ import { estimateMarketAssumptions } from './lib/marketAssumptions';
 import { DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
 import type { Suggestion } from './lib/suggestionEngine';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
-
-interface SavedResult {
-  name: string;
-  projections: YearlyProjection[];
-  color: string;
-}
 
 const NAV_ITEMS = [
   { icon: User, label: 'Profile' },
@@ -183,7 +178,7 @@ function App() {
   const [activeSuggestion, setActiveSuggestion] = useState<Suggestion | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [mcProgress, setMcProgress] = useState<{ completed: number; total: number } | null>(null);
-  const [savedResults, setSavedResults] = useState<SavedResult[]>([]);
+  const [savedResults, setSavedResults] = useState<SavedComparisonResult[]>([]);
   const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [liveTaxData, setLiveTaxData] = useState<LiveTaxData | null>(null);
   const [taxDataStatus, setTaxDataStatus] = useState<'loading' | 'live' | 'fallback'>('loading');

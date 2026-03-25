@@ -4,25 +4,20 @@ import PDFExport from './PDFExport';
 import NetWorthChart from './NetWorthChart';
 import CashFlowChart from './CashFlowChart';
 import TaxChart from './TaxChart';
+import ComparisonChart from './ComparisonChart';
 import ProjectionTable from './ProjectionTable';
 import TaxInfoModal from './TaxInfoModal';
 import TaxVerificationPanel from './TaxVerificationPanel';
 import PortfolioBreakdownModal, { PortfolioSlice } from './PortfolioBreakdownModal';
 import AISuggestionsPanel from './AISuggestionsPanel';
-import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation } from '../types/retirement';
+import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation, SavedComparisonResult } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
 import { computeTaxAudit, calcTieredCapitalGainInclusion, OAS_CLAWBACK_THRESHOLD_2026, OAS_CLAWBACK_RATE, FEDERAL_BRACKETS_2026 } from '../lib/taxEngine';
 import { GIS_MAX_SINGLE_ANNUAL_2026, GIS_CLAWBACK_RATE } from '../lib/benefitsEngine';
 import { type LiveTaxData } from '../lib/taxDataService';
 import { generateSuggestions, calculateComparisonMetrics, type Suggestion } from '../lib/suggestionEngine';
-import { runSingleProjection } from '../lib/projectionEngine';
-
-interface SavedResult {
-  name: string;
-  projections: YearlyProjection[];
-  color: string;
-}
+import { COMPARISON_STRATEGIES as WITHDRAWAL_STRATEGIES, getComparisonData } from '../lib/projectionEngine';
 
 type RelativeScoreCard = {
   key: string;
@@ -69,20 +64,6 @@ function addRelativeScores<T extends RelativeScoreCard>(cards: T[]): Array<T & {
   }));
 }
 
-const WITHDRAWAL_STRATEGIES: Array<{
-  id: Scenario['withdrawal_strategy'];
-  label: string;
-  shortLabel: string;
-  color: string;
-}> = [
-  { id: 'maximize_spending', label: 'Maximize Life Spending', shortLabel: 'Life Spending', color: '#2563eb' },
-  { id: 'maximize_estate', label: 'Maximize Estate Value', shortLabel: 'Estate Value', color: '#059669' },
-  { id: 'tax_efficient', label: 'Tax Efficient', shortLabel: 'Tax Efficient', color: '#d97706' },
-  { id: 'net_expenses_only', label: 'Net Expenses Only', shortLabel: 'Net Expenses', color: '#7c3aed' },
-  { id: 'rrsp_meltdown', label: 'RRSP Meltdown', shortLabel: 'RRSP Meltdown', color: '#dc2626' },
-  { id: 'minimize_lifetime_tax', label: 'Minimize Lifetime Tax', shortLabel: 'Min. Tax', color: '#0891b2' },
-];
-
 const WITHDRAWAL_STRATEGY_DETAILS: Record<Scenario['withdrawal_strategy'], { badge: string; description: string }> = {
   maximize_spending: {
     badge: 'Most spending',
@@ -128,7 +109,7 @@ interface ResultsDashboardProps {
   healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   onSaveComparison: () => void;
-  savedResults: SavedResult[];
+  savedResults: SavedComparisonResult[];
   liveTaxData?: LiveTaxData | null;
   taxDataStatus?: 'loading' | 'live' | 'fallback';
   onTaxDataRefreshed?: (data: LiveTaxData) => void;
@@ -216,6 +197,8 @@ export default function ResultsDashboard({
   const [showFinalPie, setShowFinalPie] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [hoveredStrategyId, setHoveredStrategyId] = useState<Scenario['withdrawal_strategy'] | null>(null);
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({});
   // Used to notify ProjectionTable to re-run the CPP/OAS optimization after a suggestion is applied.
   const [optimTrigger, setOptimTrigger] = useState(0);
 
@@ -357,22 +340,73 @@ export default function ResultsDashboard({
     { label: 'Primary Residence', value: pv(lastYear.primary_residence_balance || 0, lastYear.year - 1), color: ACCOUNT_COLORS.primary_residence },
   ].filter(s => s.value > 0);
 
+  const comparisonData = useMemo(() => getComparisonData(
+    scenario,
+    incomeSources,
+    savingsAccounts,
+    expenseLadder,
+    healthcareSteps,
+    oneTimeEvents,
+    savedResults,
+    assetAllocations
+  ), [
+    scenario,
+    incomeSources,
+    savingsAccounts,
+    expenseLadder,
+    healthcareSteps,
+    oneTimeEvents,
+    savedResults,
+    assetAllocations,
+  ]);
+
+  const displayComparisonData = useMemo(() => {
+    const transformRows = (rows: typeof comparisonData.cashFlowData) => rows.map(row => {
+      const nextRow: typeof row = { age: row.age };
+
+      for (const series of comparisonData.series) {
+        const rawValue = row[series.key];
+        if (typeof rawValue !== 'number') continue;
+
+        const yearIndexKey = `__yearIndex:${series.key}`;
+        const yearIndex = typeof row[yearIndexKey] === 'number' ? Number(row[yearIndexKey]) : 0;
+        nextRow[series.key] = showTodayDollars ? presentValue(rawValue, yearIndex, inflationRate) : rawValue;
+      }
+
+      return nextRow;
+    });
+
+    return {
+      cashFlowData: transformRows(comparisonData.cashFlowData).filter(row => !retirementView || row.age >= retirementStartAge),
+      taxData: transformRows(comparisonData.taxData).filter(row => !retirementView || row.age >= retirementStartAge),
+    };
+  }, [comparisonData.cashFlowData, comparisonData.series, comparisonData.taxData, inflationRate, retirementStartAge, retirementView, showTodayDollars]);
+
+  useEffect(() => {
+    setVisibleLines(current => {
+      const next = Object.fromEntries(
+        comparisonData.series.map(series => [series.key, current[series.key] ?? true])
+      );
+      const sameKeys = Object.keys(current).length === Object.keys(next).length;
+      const unchanged = sameKeys && Object.entries(next).every(([key, value]) => current[key] === value);
+      return unchanged ? current : next;
+    });
+  }, [comparisonData.series]);
+
+  const toggleComparisonLine = (key: string) => {
+    setVisibleLines(current => ({
+      ...current,
+      [key]: !(current[key] ?? true),
+    }));
+  };
+
+  const showAllComparisonLines = () => {
+    setVisibleLines(Object.fromEntries(comparisonData.series.map(series => [series.key, true])));
+  };
+
   const strategySummaryCards = useMemo(() => {
     const cards = WITHDRAWAL_STRATEGIES.map(strategy => {
-      const strategyProjections = strategy.id === scenario.withdrawal_strategy
-        ? projections
-        : runSingleProjection(
-            { ...scenario, withdrawal_strategy: strategy.id },
-            incomeSources,
-            savingsAccounts,
-            expenseLadder,
-          healthcareSteps,
-            oneTimeEvents,
-            undefined,
-            undefined,
-            undefined,
-            assetAllocations
-          );
+      const strategyProjections = comparisonData.strategyProjections[strategy.id] ?? projections;
 
       const strategyLast = strategyProjections[strategyProjections.length - 1];
       const strategyRetirementAge = strategyProjections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? scenario.retirement_age;
@@ -415,16 +449,12 @@ export default function ResultsDashboard({
 
     return addRelativeScores(cards);
   }, [
-    scenario,
     projections,
-    incomeSources,
-    savingsAccounts,
-    assetAllocations,
-    expenseLadder,
-    healthcareSteps,
-    oneTimeEvents,
     showTodayDollars,
     onWithdrawalStrategyChange,
+    comparisonData.strategyProjections,
+    scenario.retirement_age,
+    scenario.withdrawal_strategy,
   ]);
 
   const selectedStrategySummary = strategySummaryCards.find(card => card.strategyId === scenario.withdrawal_strategy) ?? strategySummaryCards[0];
@@ -718,6 +748,29 @@ export default function ResultsDashboard({
               </select>
             </div>
             <div className="flex items-center gap-2 pl-4 border-l border-gray-300">
+              <span className={`text-xs font-medium whitespace-nowrap transition-colors ${!isComparisonMode ? 'text-gray-900' : 'text-gray-400'}`}>
+                Standard
+              </span>
+              <button
+                onClick={() => {
+                  setIsComparisonMode(current => {
+                    const next = !current;
+                    if (next && activeTab === 'overview') {
+                      setActiveTab('cashflow');
+                    }
+                    return next;
+                  });
+                }}
+                className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${isComparisonMode ? 'bg-blue-600' : 'bg-gray-300'}`}
+                title={isComparisonMode ? 'Showing comparison charts' : 'Showing standard charts'}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all duration-200 ${isComparisonMode ? 'left-5' : 'left-0.5'}`} />
+              </button>
+              <span className={`text-xs font-medium whitespace-nowrap transition-colors ${isComparisonMode ? 'text-blue-700' : 'text-gray-400'}`}>
+                Strategy Comparison
+              </span>
+            </div>
+            <div className="flex items-center gap-2 pl-4 border-l border-gray-300">
               <span className={`text-xs font-medium whitespace-nowrap transition-colors ${!retirementView ? 'text-gray-900' : 'text-gray-400'}`}>
                 Overall
               </span>
@@ -748,11 +801,35 @@ export default function ResultsDashboard({
               />
             </div>
           )}
-          {activeTab === 'cashflow' && (
+          {activeTab === 'cashflow' && !isComparisonMode && (
             <CashFlowChart data={viewProjections} showToday={showTodayDollars} inflationRate={inflationRate} />
           )}
-          {activeTab === 'tax' && (
+          {activeTab === 'tax' && !isComparisonMode && (
             <TaxChart data={viewProjections} showToday={showTodayDollars} inflationRate={inflationRate} />
+          )}
+          {isComparisonMode && (activeTab === 'cashflow' || activeTab === 'tax') && (
+            <div className="space-y-6">
+              <ComparisonChart
+                title="Lifetime Cash Flow Comparison"
+                subtitle="After-tax cash flow across all six withdrawal strategies plus any saved comparison snapshots."
+                data={displayComparisonData.cashFlowData}
+                series={comparisonData.series}
+                visibleLines={visibleLines}
+                onToggleLine={toggleComparisonLine}
+                onShowAll={showAllComparisonLines}
+                yAxisLabel={showTodayDollars ? "After-Tax Cash Flow (Today's $)" : 'After-Tax Cash Flow ($)'}
+              />
+              <ComparisonChart
+                title="Lifetime Tax Exposure Comparison"
+                subtitle="Annual total taxes for the active scenario strategies and saved snapshots, with legend toggles that do not re-run simulations."
+                data={displayComparisonData.taxData}
+                series={comparisonData.series}
+                visibleLines={visibleLines}
+                onToggleLine={toggleComparisonLine}
+                onShowAll={showAllComparisonLines}
+                yAxisLabel={showTodayDollars ? "Annual Tax (Today's $)" : 'Annual Tax ($)'}
+              />
+            </div>
           )}
           {activeTab === 'table' && (
             <ProjectionTable

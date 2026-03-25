@@ -8,7 +8,11 @@
   ExpenseLadder,
   OneTimeEvent,
   YearlyProjection,
-  MonteCarloResult
+  MonteCarloResult,
+  ComparisonDataPoint,
+  ComparisonDataset,
+  ComparisonSeriesDefinition,
+  SavedComparisonResult,
 } from '../types/retirement';
 import {
   calculateTotalTax,
@@ -56,6 +60,20 @@ export interface ProjectionOverrides {
   additionalMonthlySavings?: number;
   withdrawalStrategy?: Scenario['withdrawal_strategy'];
 }
+
+export const COMPARISON_STRATEGIES: Array<{
+  id: Scenario['withdrawal_strategy'];
+  label: string;
+  shortLabel: string;
+  color: string;
+}> = [
+  { id: 'maximize_spending', label: 'Maximize Life Spending', shortLabel: 'Life Spending', color: '#2563eb' },
+  { id: 'maximize_estate', label: 'Maximize Estate Value', shortLabel: 'Estate Value', color: '#059669' },
+  { id: 'tax_efficient', label: 'Tax Efficient', shortLabel: 'Tax Efficient', color: '#d97706' },
+  { id: 'net_expenses_only', label: 'Net Expenses Only', shortLabel: 'Net Expenses', color: '#7c3aed' },
+  { id: 'rrsp_meltdown', label: 'RRSP Meltdown', shortLabel: 'RRSP Meltdown', color: '#dc2626' },
+  { id: 'minimize_lifetime_tax', label: 'Minimize Lifetime Tax', shortLabel: 'Min. Tax', color: '#0891b2' },
+];
 
 const RRIF_MINIMUM_RATES: Record<number, number> = {
   71: 0.0528, 72: 0.0540, 73: 0.0553, 74: 0.0567, 75: 0.0582,
@@ -1016,6 +1034,85 @@ function computeForwardRRIFIncome(
 
 function getSpouseRetirementAge(scenario: Scenario): number {
   return scenario.spouse_retirement_age ?? scenario.retirement_age;
+}
+
+function buildComparisonRows(
+  seriesRows: Array<{ key: string; projections: YearlyProjection[] }>,
+  metricSelector: (projection: YearlyProjection) => number
+): ComparisonDataPoint[] {
+  const rowsByAge = new Map<number, ComparisonDataPoint>();
+
+  for (const series of seriesRows) {
+    for (const projection of series.projections) {
+      const existing = rowsByAge.get(projection.age) ?? { age: projection.age };
+      existing[series.key] = metricSelector(projection);
+      existing[`__yearIndex:${series.key}`] = projection.year - 1;
+      rowsByAge.set(projection.age, existing);
+    }
+  }
+
+  return Array.from(rowsByAge.values()).sort((left, right) => left.age - right.age);
+}
+
+export function getComparisonData(
+  scenario: Scenario,
+  incomeSources: IncomeSource[],
+  savingsAccounts: SavingsAccount[],
+  expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
+  oneTimeEvents: OneTimeEvent[],
+  savedScenarios: SavedComparisonResult[] = [],
+  allocations?: AssetAllocation[]
+): ComparisonDataset {
+  const strategyProjections = {} as Record<Scenario['withdrawal_strategy'], YearlyProjection[]>;
+  const strategySeries: ComparisonSeriesDefinition[] = COMPARISON_STRATEGIES.map(strategy => {
+    strategyProjections[strategy.id] = runSingleProjection(
+      { ...scenario, withdrawal_strategy: strategy.id },
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      undefined,
+      undefined,
+      undefined,
+      allocations
+    );
+
+    return {
+      key: `strategy:${strategy.id}`,
+      label: strategy.label,
+      color: strategy.color,
+      sourceType: 'strategy',
+    };
+  });
+
+  const savedSeries: ComparisonSeriesDefinition[] = savedScenarios.map((savedScenario, index) => ({
+    key: `saved:${index}`,
+    label: savedScenario.name,
+    color: savedScenario.color,
+    sourceType: 'saved',
+    strokeDasharray: '5 5',
+  }));
+
+  const series = [...strategySeries, ...savedSeries];
+  const seriesRows = [
+    ...strategySeries.map(strategy => ({
+      key: strategy.key,
+      projections: strategyProjections[strategy.key.replace('strategy:', '') as Scenario['withdrawal_strategy']],
+    })),
+    ...savedSeries.map(saved => ({
+      key: saved.key,
+      projections: savedScenarios[Number(saved.key.replace('saved:', ''))]?.projections ?? [],
+    })),
+  ];
+
+  return {
+    cashFlowData: buildComparisonRows(seriesRows, projection => projection.after_tax_income),
+    taxData: buildComparisonRows(seriesRows, projection => projection.total_tax),
+    series,
+    strategyProjections,
+  };
 }
 
 export function runSingleProjection(
