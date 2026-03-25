@@ -32,6 +32,7 @@ import {
 import { runSingleProjection, type ProjectionOverrides } from './lib/projectionEngine';
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
 import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataService';
+import { fetchLiveInflationData, getCachedInflationData, type LiveInflationData } from './lib/inflationDataService';
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import { estimateMarketAssumptions } from './lib/marketAssumptions';
 import { DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
@@ -128,7 +129,8 @@ const IconNav = ({ currentStep, onNavigate, highestVisited }: { currentStep: num
 
 
 function App() {
-  const defaultInflationRate = 3.7;
+  const initialInflationData = getCachedInflationData();
+  const initialInflationRate = initialInflationData?.fifteenYearAverage ?? 0;
   const initialMarketAssumptions = estimateMarketAssumptions({
     cad_equity_weight: 60,
     us_equity_weight: 40,
@@ -144,7 +146,7 @@ function App() {
     spouse_retirement_age: 65,
     plan_duration: 30,
     province: 'ON' as Province,
-    inflation_rate: defaultInflationRate,
+    inflation_rate: initialInflationRate,
     return_type: 'linear',
     expected_return: initialMarketAssumptions.expectedReturn,
     management_fee_pct: DEFAULT_MANAGEMENT_FEE_PCT,
@@ -182,6 +184,7 @@ function App() {
   const [savedResults, setSavedResults] = useState<SavedComparisonResult[]>([]);
   const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [liveTaxData, setLiveTaxData] = useState<LiveTaxData | null>(null);
+  const [liveInflationData, setLiveInflationData] = useState<LiveInflationData | null>(initialInflationData);
   const [taxDataStatus, setTaxDataStatus] = useState<'loading' | 'live' | 'fallback'>('loading');
   const [tfsaLimitData, setTfsaLimitData] = useState<LiveTfsaLimitData | null>(null);
   const [mcIsStale, setMcIsStale] = useState(false);
@@ -189,6 +192,12 @@ function App() {
   const calculationPending = useRef(false);
 
   useEffect(() => {
+    fetchLiveInflationData().then(data => {
+      if (!data) return;
+      setLiveInflationData(data);
+      setScenario(prev => prev.inflation_rate === initialInflationRate ? { ...prev, inflation_rate: data.fifteenYearAverage } : prev);
+    });
+
     fetchLiveTaxData().then(data => {
       if (data) {
         setActiveLiveTaxData(data);
@@ -213,7 +222,7 @@ function App() {
         return changed ? next : prev;
       });
     });
-  }, []);
+  }, [initialInflationRate]);
 
   const updateScenario = (updates: Partial<Scenario>) => {
     setScenario(prev => ({ ...prev, ...updates }));
@@ -517,10 +526,11 @@ function App() {
                 scenario={scenario}
                 onChange={updateScenario}
                 onLoadData={handleLoadScenario}
+                 inflationData={liveInflationData}
               />
             )}
             {currentStep === 1 && (
-              <IncomeForm incomeSources={incomeSources} onChange={setIncomeSources} scenario={scenario} />
+                <IncomeForm incomeSources={incomeSources} onChange={setIncomeSources} scenario={scenario} />
             )}
             {currentStep === 2 && (
               <SavingsForm accounts={savingsAccounts} onChange={setSavingsAccounts} scenario={scenario} tfsaLimitData={tfsaLimitData} />

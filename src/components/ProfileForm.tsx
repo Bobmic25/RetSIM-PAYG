@@ -4,6 +4,7 @@ import { Scenario, Province, IncomeSource, SavingsAccount, ExpenseLadder, Health
 import { formatCurrency, parseCurrency } from '../lib/formatters';
 import { MAX_AGE } from '../lib/ageUtils';
 import { AgeInput } from './AgeInput';
+import type { LiveInflationData } from '../lib/inflationDataService';
 
 interface LoadedData {
   scenario: Scenario;
@@ -18,6 +19,7 @@ interface ProfileFormProps {
   scenario: Scenario;
   onChange: (updates: Partial<Scenario>) => void;
   onLoadData?: (data: LoadedData) => void;
+  inflationData?: LiveInflationData | null;
 }
 
 type ProfileHelpTopic = 'dtc' | 'medical' | 'donations' | 'mortgage_balance' | 'mortgage_rate' | 'mortgage_amortization';
@@ -272,7 +274,7 @@ function CppOasPanel({
   );
 }
 
-export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileFormProps) {
+export default function ProfileForm({ scenario, onChange, onLoadData, inflationData }: ProfileFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mortgage = scenario.mortgage ?? {
     balance: 0,
@@ -282,6 +284,9 @@ export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileF
   const [showPlanningCredits, setShowPlanningCredits] = useState(false);
   const [showMortgage, setShowMortgage] = useState(false);
   const [activeHelpTopic, setActiveHelpTopic] = useState<ProfileHelpTopic | null>(null);
+  const inflationNote = inflationData
+    ? `Latest published CPI inflation: ${inflationData.latestRate.toFixed(1)}% (${new Date(inflationData.latestObservationDate).toLocaleDateString('en-CA', { year: 'numeric', month: 'long' })}). Prior calendar-year average: ${inflationData.lastYearAverage.toFixed(1)}%. Rolling 15-year average: ${inflationData.fifteenYearAverage.toFixed(1)}%. The default assumption uses the 15-year average.${inflationData.isLive ? '' : ' Cached data is currently being used because the live lookup was unavailable.'}`
+    : 'Inflation data will be fetched when the app starts. If the live lookup is unavailable, the app will continue using the most recently cached inflation data.';
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -424,7 +429,7 @@ export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileF
             onChange={e => onChange({ inflation_rate: parseFloat(e.target.value) || 0 })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
           <p className="text-xs text-blue-700 mt-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 leading-snug">
-            Current Canadian yearly inflation rate (CPI) as of January 2026 is 2.3% based on Statistics Canada data. The 2025 annual average was 2.1%, and the 5-year average for 2021-2025 was about 3.7%. The default setting uses that 5-year average.
+            {inflationNote}
           </p>
         </div>
       </div>
