@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, Play, User, PiggyBank, Landmark,
   ShoppingCart, Database, TrendingUp, HeartPulse, Calendar, Scaling,
   BarChart2, Save
 } from 'lucide-react';
 import Header from './components/Header';
+import AssistantPanel from './components/AssistantPanel';
 import ProfileForm from './components/ProfileForm';
 import IncomeForm from './components/IncomeForm';
 import SavingsForm from './components/SavingsForm';
@@ -37,6 +38,7 @@ import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import { estimateMarketAssumptions } from './lib/marketAssumptions';
 import { DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
 import type { Suggestion } from './lib/suggestionEngine';
+import { buildAssistantContext, type AssistantEntryPoint } from './lib/assistantService';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
 
 const NAV_ITEMS = [
@@ -191,7 +193,21 @@ function App() {
   const [tfsaLimitData, setTfsaLimitData] = useState<LiveTfsaLimitData | null>(null);
   const [mcIsStale, setMcIsStale] = useState(false);
   const [marketAssumptionsAuto, setMarketAssumptionsAuto] = useState(true);
+  const [showAssistant, setShowAssistant] = useState(false);
+  const [assistantEntryPoint, setAssistantEntryPoint] = useState<AssistantEntryPoint>('header');
   const calculationPending = useRef(false);
+
+  const assistantContext = useMemo(() => buildAssistantContext({
+    currentStep,
+    currentStepLabel: NAV_ITEMS[currentStep]?.label ?? 'Profile',
+    scenario,
+    savingsAccounts,
+    projections,
+    monteCarloResult,
+    savedResults,
+    taxDataStatus,
+    mcIsStale,
+  }), [currentStep, scenario, savingsAccounts, projections, monteCarloResult, savedResults, taxDataStatus, mcIsStale]);
 
   useEffect(() => {
     fetchLiveInflationData().then(data => {
@@ -228,6 +244,11 @@ function App() {
 
   const updateScenario = (updates: Partial<Scenario>) => {
     setScenario(prev => ({ ...prev, ...updates }));
+  };
+
+  const openAssistant = (entryPoint: AssistantEntryPoint) => {
+    setAssistantEntryPoint(entryPoint);
+    setShowAssistant(true);
   };
 
   useEffect(() => {
@@ -523,7 +544,13 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <Header province={scenario.province} />
+      <AssistantPanel
+        isOpen={showAssistant}
+        entryPoint={assistantEntryPoint}
+        context={assistantContext}
+        onClose={() => setShowAssistant(false)}
+      />
+      <Header province={scenario.province} onOpenAssistant={() => openAssistant('header')} />
       <IconNav currentStep={currentStep} onNavigate={navigateTo} highestVisited={highestVisited} />
 
       <div className="container mx-auto px-4 py-8">
@@ -662,6 +689,7 @@ function App() {
                   onWithdrawalStrategyChange={handleWithdrawalStrategyChange}
                   mcIsStale={mcIsStale}
                   onRerunMonteCarlo={handleRerunMonteCarlo}
+                  onOpenAssistant={() => openAssistant('results')}
                   onTaxDataRefreshed={(data) => {
                     setActiveLiveTaxData(data);
                     setLiveTaxData(data);

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { ShieldCheck, HelpCircle, X } from 'lucide-react';
+import { HelpCircle, MessageSquareText, X } from 'lucide-react';
 import { Province } from '../types/retirement';
 
 interface HeaderProps {
   province: Province;
+  onOpenAssistant: () => void;
 }
 
 const provinceNames: Record<string, string> = {
@@ -22,7 +23,7 @@ const SecureWealthIcon = ({ size = 24, className = "" }: { size?: number, classN
   </svg>
 );
 
-const Header: React.FC<HeaderProps> = ({ province }) => {
+const Header: React.FC<HeaderProps> = ({ province, onOpenAssistant }) => {
   const [showAbout, setShowAbout] = useState(false);
   const currentMonthYear = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric' }).format(new Date());
 
@@ -95,6 +96,14 @@ const Header: React.FC<HeaderProps> = ({ province }) => {
               Audit Created in {provinceNames[province] || province}, Canada — {currentMonthYear}
             </p>
           </div>
+          <button
+            onClick={onOpenAssistant}
+            className="flex-shrink-0 flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 transition-colors hover:bg-emerald-500/20 hover:text-white"
+            title="Open planning assistant"
+          >
+            <MessageSquareText className="w-4 h-4" />
+            Ask Assistant
+          </button>
           <button
             onClick={() => setShowAbout(true)}
             className="flex-shrink-0 text-slate-400 hover:text-blue-400 transition-colors p-1.5 rounded-full hover:bg-slate-800"

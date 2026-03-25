@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, AlertTriangle, PieChart as PieChartIcon } from 'lucide-react';
+import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, AlertTriangle, PieChart as PieChartIcon, MessageSquareText } from 'lucide-react';
 import PDFExport from './PDFExport';
 import NetWorthChart from './NetWorthChart';
 import CashFlowChart from './CashFlowChart';
@@ -117,6 +117,7 @@ interface ResultsDashboardProps {
   onWithdrawalStrategyChange?: (strategy: Scenario['withdrawal_strategy']) => void;
   mcIsStale?: boolean;
   onRerunMonteCarlo?: () => void;
+  onOpenAssistant?: () => void;
 }
 
 function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClick, dialPercent }: {
@@ -222,7 +223,8 @@ export default function ResultsDashboard({
   showAISuggestions = false,
   onWithdrawalStrategyChange,
   mcIsStale = false,
-  onRerunMonteCarlo
+  onRerunMonteCarlo,
+  onOpenAssistant,
 }: ResultsDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'cashflow' | 'tax' | 'table' | 'verify'>('overview');
   const [showTodayDollars, setShowTodayDollars] = useState(true);
@@ -600,6 +602,15 @@ export default function ResultsDashboard({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-gray-900">Simulation Results</h2>
         <div className="flex gap-2 flex-wrap">
+          {onOpenAssistant && (
+            <button
+              onClick={onOpenAssistant}
+              className="flex items-center gap-2 px-4 py-2 border border-emerald-200 text-emerald-800 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors text-sm font-medium"
+            >
+              <MessageSquareText className="w-4 h-4" />
+              Ask Assistant
+            </button>
+          )}
           <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white text-sm">
             <span className={!showTodayDollars ? 'font-semibold text-blue-700' : 'text-gray-400'}>Future $</span>
             <button
