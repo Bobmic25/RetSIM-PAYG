@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, HelpCircle, X } from 'lucide-react';
 import { Scenario, Province, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { formatCurrency, parseCurrency } from '../lib/formatters';
 import { MAX_AGE } from '../lib/ageUtils';
@@ -20,6 +20,59 @@ interface ProfileFormProps {
   onLoadData?: (data: LoadedData) => void;
 }
 
+type ProfileHelpTopic = 'dtc' | 'medical' | 'donations' | 'mortgage_balance' | 'mortgage_rate' | 'mortgage_amortization';
+
+const PROFILE_HELP_CONTENT: Record<ProfileHelpTopic, { title: string; lines: string[] }> = {
+  dtc: {
+    title: 'Disability Tax Credit (DTC)',
+    lines: [
+      'Use this only if the primary person has been approved by the CRA for the Disability Tax Credit, usually through Form T2201.',
+      'The DTC is intended for people with a severe and prolonged impairment in physical or mental functions.',
+      'The credit amount is indexed each year. This tool applies the credit for the primary person only and does not calculate transfer rules to supporting relatives.',
+    ],
+  },
+  medical: {
+    title: 'Annual Medical Expenses',
+    lines: [
+      'Enter the eligible unreimbursed medical expenses you expect to pay in a year.',
+      'Under CRA medical expense rules, only qualifying expenses count, and the claim is reduced by the lesser of 3% of net income or the indexed annual threshold.',
+      'There is no single fixed cap in the model. Enter the amount you expect to be eligible and supported by receipts.',
+    ],
+  },
+  donations: {
+    title: 'Annual Charitable Donations',
+    lines: [
+      'Enter donations supported by official receipts from a registered charity or other CRA-qualified donee.',
+      'CRA generally limits annual claims to up to 75% of net income, with some exceptions, and unused donations can usually be carried forward for up to five years.',
+      'This tool models the standard annual donation credit structure for planning purposes.',
+    ],
+  },
+  mortgage_balance: {
+    title: 'Current Mortgage Balance',
+    lines: [
+      'Enter the current principal outstanding, not the original mortgage amount and not the total of future payments.',
+      'Use the latest lender statement or renewal document.',
+      'This tool uses the balance to estimate annual debt servicing and net worth impact.',
+    ],
+  },
+  mortgage_rate: {
+    title: 'Interest Rate',
+    lines: [
+      'Enter the annual contractual mortgage rate from your current mortgage or expected renewal rate.',
+      'Use the actual note rate, not the federal mortgage stress-test rate. The stress test is for qualification underwriting, not for ongoing cash-flow planning.',
+      'The tool uses this rate to estimate annual payments over the remaining amortization period.',
+    ],
+  },
+  mortgage_amortization: {
+    title: 'Amortization End Age',
+    lines: [
+      'Enter the age at which the mortgage is expected to be fully repaid.',
+      'For many new insured Canadian mortgages, maximum amortization is often 25 years, while uninsured mortgages may vary by lender and product.',
+      'The tool uses this age to spread repayment over the remaining years of the loan.',
+    ],
+  },
+};
+
 const PROVINCES: { value: Province; label: string }[] = [
   { value: 'AB', label: 'Alberta' }, { value: 'BC', label: 'British Columbia' },
   { value: 'MB', label: 'Manitoba' }, { value: 'NB', label: 'New Brunswick' },
@@ -28,6 +81,23 @@ const PROVINCES: { value: Province; label: string }[] = [
   { value: 'ON', label: 'Ontario' }, { value: 'PE', label: 'Prince Edward Island' },
   { value: 'QC', label: 'Quebec' }, { value: 'SK', label: 'Saskatchewan' }, { value: 'YT', label: 'Yukon' }
 ];
+
+function FieldHelpButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+      className="text-gray-400 hover:text-blue-600 transition-colors"
+      title="More information"
+    >
+      <HelpCircle className="w-3.5 h-3.5" />
+    </button>
+  );
+}
 
 function Toggle({ labelA, labelB, active, onToggle }: { labelA: string; labelB: string; active: string; onToggle: () => void }) {
   const isB = active === labelB;
@@ -204,6 +274,14 @@ function CppOasPanel({
 
 export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mortgage = scenario.mortgage ?? {
+    balance: 0,
+    rate: 0,
+    amortization_end_age: scenario.retirement_age,
+  };
+  const [showPlanningCredits, setShowPlanningCredits] = useState(false);
+  const [showMortgage, setShowMortgage] = useState(false);
+  const [activeHelpTopic, setActiveHelpTopic] = useState<ProfileHelpTopic | null>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -232,6 +310,31 @@ export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileF
 
   return (
     <div className="space-y-6">
+      {activeHelpTopic && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-2xl">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-blue-600" />
+                <h2 className="text-lg font-bold text-gray-900">{PROFILE_HELP_CONTENT[activeHelpTopic].title}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveHelpTopic(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors text-gray-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              {PROFILE_HELP_CONTENT[activeHelpTopic].lines.map((line, index) => (
+                <p key={index} className="text-sm text-gray-700 leading-relaxed">{line}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-900">Profile Settings</h3>
         {onLoadData && (
@@ -323,6 +426,178 @@ export default function ProfileForm({ scenario, onChange, onLoadData }: ProfileF
           <p className="text-xs text-blue-700 mt-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 leading-snug">
             Current Canadian yearly inflation rate (CPI) as of January 2026 is 2.3% based on Statistics Canada data. The 2025 annual average was 2.1%.
           </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 space-y-4">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showPlanningCredits}
+              onChange={e => {
+                const checked = e.target.checked;
+                setShowPlanningCredits(checked);
+                if (!checked) {
+                  onChange({
+                    primary_has_dtc: false,
+                    medical_expenses_annual: 0,
+                    charitable_donations_annual: 0,
+                  });
+                }
+              }}
+              className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <div>
+              <span className="text-sm font-medium text-gray-800">Do you want to include planning tax credits?</span>
+              <p className="text-xs text-emerald-700 mt-1">
+                Use this if you want to model disability tax credit eligibility, annual medical expenses, or charitable donations.
+              </p>
+            </div>
+          </label>
+
+          {showPlanningCredits && (
+            <>
+              <div>
+                <h4 className="font-semibold text-emerald-900">Planning Credits</h4>
+                <p className="text-sm text-emerald-700 mt-1">These values feed the annual tax-credit calculations inside the projection engine.</p>
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={scenario.primary_has_dtc || false}
+                  onChange={e => onChange({ primary_has_dtc: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                  Primary person qualifies for the Disability Tax Credit
+                  <FieldHelpButton onClick={() => setActiveHelpTopic('dtc')} />
+                </span>
+              </label>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      Annual Medical Expenses
+                      <FieldHelpButton onClick={() => setActiveHelpTopic('medical')} />
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={scenario.medical_expenses_annual ? formatCurrency(scenario.medical_expenses_annual) : ''}
+                    onChange={e => onChange({ medical_expenses_annual: parseCurrency(e.target.value) })}
+                    placeholder="$0"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      Annual Charitable Donations
+                      <FieldHelpButton onClick={() => setActiveHelpTopic('donations')} />
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={scenario.charitable_donations_annual ? formatCurrency(scenario.charitable_donations_annual) : ''}
+                    onChange={e => onChange({ charitable_donations_annual: parseCurrency(e.target.value) })}
+                    placeholder="$0"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 space-y-4">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showMortgage}
+              onChange={e => {
+                const checked = e.target.checked;
+                setShowMortgage(checked);
+                if (!checked) {
+                  onChange({
+                    mortgage: {
+                      balance: 0,
+                      rate: 0,
+                      amortization_end_age: scenario.retirement_age,
+                    },
+                  });
+                }
+              }}
+              className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+            />
+            <div>
+              <span className="text-sm font-medium text-gray-800">Do you want to model a mortgage?</span>
+              <p className="text-xs text-amber-700 mt-1">
+                Use this if you want the projection to include mortgage balance, rate, and amortization.
+              </p>
+            </div>
+          </label>
+
+          {showMortgage && (
+            <>
+              <div>
+                <h4 className="font-semibold text-amber-900">Mortgage</h4>
+                <p className="text-sm text-amber-700 mt-1">Optional debt-servicing inputs. Leave balance at $0 if there is no mortgage to model.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      Current Mortgage Balance
+                      <FieldHelpButton onClick={() => setActiveHelpTopic('mortgage_balance')} />
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={mortgage.balance ? formatCurrency(mortgage.balance) : ''}
+                    onChange={e => onChange({ mortgage: { ...mortgage, balance: parseCurrency(e.target.value) } })}
+                    placeholder="$0"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      Interest Rate (%)
+                      <FieldHelpButton onClick={() => setActiveHelpTopic('mortgage_rate')} />
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={25}
+                    value={mortgage.rate}
+                    onChange={e => onChange({ mortgage: { ...mortgage, rate: parseFloat(e.target.value) || 0 } })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      Amortization End Age
+                      <FieldHelpButton onClick={() => setActiveHelpTopic('mortgage_amortization')} />
+                    </span>
+                  </label>
+                  <AgeInput
+                    value={mortgage.amortization_end_age}
+                    min={18}
+                    max={MAX_AGE}
+                    onChange={v => onChange({ mortgage: { ...mortgage, amortization_end_age: v! } })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

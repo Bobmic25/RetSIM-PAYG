@@ -315,25 +315,6 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
                     />
                   </div>
                   ))}
-                  <div className="flex gap-2 h-2 rounded-full overflow-hidden mt-2">
-                    <div className="bg-red-500 transition-all duration-200" style={{ width: `${cadWeight}%` }} />
-                    <div className="bg-blue-500 transition-all duration-200" style={{ width: `${usWeight}%` }} />
-                    <div className="bg-violet-500 transition-all duration-200" style={{ width: `${intlWeight}%` }} />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-                    <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center">
-                      <div className="text-xs text-red-600 font-medium">Canada (TSX)</div>
-                      <div className="text-base font-bold text-red-800">{cadWeight.toFixed(0)}%</div>
-                    </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-center">
-                      <div className="text-xs text-blue-600 font-medium">US (S&amp;P 500)</div>
-                      <div className="text-base font-bold text-blue-800">{usWeight.toFixed(0)}%</div>
-                    </div>
-                    <div className="bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 text-center">
-                      <div className="text-xs text-violet-600 font-medium">International</div>
-                      <div className="text-base font-bold text-violet-800">{intlWeight.toFixed(0)}%</div>
-                    </div>
-                  </div>
                   {Math.round(cadWeight + usWeight + intlWeight) !== 100 && (
                     <p className="text-xs text-red-600 mt-1">Geographic weights must sum to 100%.</p>
                   )}

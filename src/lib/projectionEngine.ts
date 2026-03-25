@@ -16,7 +16,8 @@ import {
   getOASClawbackThreshold,
   calcTieredCapitalGainInclusion,
   calculateTerminalTax,
-  getMarginalRate
+  getMarginalRate,
+  type TaxCreditInputs
 } from './taxEngine';
 import { calculateCPPBenefit, calculateOASBenefit, adjustForInflation, calculateGISBenefit, applyOAS75Bump, presentValue, type GISResult } from './benefitsEngine';
 import {
@@ -35,6 +36,8 @@ interface AccountBalances {
   non_reg_primary_acb: number;
   non_reg_spouse: number;
   non_reg_spouse_acb: number;
+  primary_residence: number;
+  primary_residence_acb: number;
 }
 
 interface ContributionPlan extends AccountBalances {
@@ -89,7 +92,7 @@ function getOneTimeEventsForAge(
   events: OneTimeEvent[],
   year: number,
   inflationRate: number
-): { inheritance: number; expenses: number } {
+): { inheritance: number; expenses: number; downsizingEvents: OneTimeEvent[] } {
   const inheritances = events
     .filter(e => e.age === age && e.event_type === 'inheritance')
     .reduce((sum, e) => {
@@ -101,7 +104,9 @@ function getOneTimeEventsForAge(
     .filter(e => e.age === age && e.event_type === 'expense')
     .reduce((sum, e) => sum + adjustForInflation(e.amount, year, inflationRate), 0);
 
-  return { inheritance: inheritances, expenses };
+  const downsizingEvents = events.filter(e => e.age === age && e.event_type === 'downsizing');
+
+  return { inheritance: inheritances, expenses, downsizingEvents };
 }
 
 function getIncomeForAge(
@@ -136,6 +141,8 @@ function calculateContributions(
     non_reg_primary_acb: 0,
     non_reg_spouse: 0,
     non_reg_spouse_acb: 0,
+    primary_residence: 0,
+    primary_residence_acb: 0,
     rrsp_salary_deduction_primary: 0,
     rrsp_salary_deduction_spouse: 0,
     salary_funded_after_tax_primary: 0,
@@ -205,6 +212,7 @@ function applyReturns(balances: AccountBalances, returnRate: number, allocations
   balances.rrsp *= rrspFactor;
   balances.rrsp_spouse *= rrspFactor;
   balances.fhsa *= rrspFactor;
+  balances.primary_residence *= rrspFactor;
 
   const tfsaForeignWeight = getAccountForeignEquityWeight('tfsa', allocations);
   const tfsaDrag = tfsaForeignWeight * FOREIGN_WITHHOLDING_DRAG * 100;
@@ -272,6 +280,15 @@ function updateNonRegAcbOnWithdrawal(
   const acbRatio = nonRegAcb / nonRegBalance;
   const acbReduction = withdrawal * acbRatio;
   return Math.max(0, nonRegAcb - acbReduction);
+}
+
+function calcAnnualMortgagePayment(balance: number, annualRatePct: number, remainingYears: number): number {
+  if (balance <= 0 || remainingYears <= 0) return 0;
+  const annualRate = annualRatePct / 100;
+  if (annualRate <= 0) {
+    return balance / remainingYears;
+  }
+  return balance * annualRate / (1 - Math.pow(1 + annualRate, -remainingYears));
 }
 
 function grossUpRRSPWithdrawal(
@@ -1038,11 +1055,15 @@ export function runSingleProjection(
     rrsp_spouse: savingsAccounts.filter(a => a.account_type === 'rrsp' && a.person === 'spouse').reduce((s, a) => s + a.current_balance, 0),
     tfsa: savingsAccounts.filter(a => a.account_type === 'tfsa').reduce((s, a) => s + a.current_balance, 0),
     fhsa: savingsAccounts.filter(a => a.account_type === 'fhsa').reduce((s, a) => s + a.current_balance, 0),
-    non_reg_primary: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary').reduce((s, a) => s + a.current_balance, 0),
-    non_reg_primary_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary').reduce((s, a) => s + a.current_balance, 0),
-    non_reg_spouse: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse').reduce((s, a) => s + a.current_balance, 0),
-    non_reg_spouse_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse').reduce((s, a) => s + a.current_balance, 0),
+    non_reg_primary: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    non_reg_primary_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'primary' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    non_reg_spouse: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    non_reg_spouse_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.person === 'spouse' && !a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    primary_residence: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
+    primary_residence_acb: savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
   };
+  let remainingMortgageBalance = Math.max(0, scenario.mortgage?.balance ?? 0);
+  let permanentExpenseMultiplier = expenseMultiplier;
 
   const cppStartAge = overrideCppStartAge ?? scenario.cpp_start_age;
   const oasStartAge = overrideOasStartAge ?? scenario.oas_start_age;
@@ -1129,7 +1150,7 @@ export function runSingleProjection(
 
     const totalDbPension = dbPensionBase + spouseDbPensionBase;
 
-    const { inheritance, expenses: oneTimeExpenses } = getOneTimeEventsForAge(age, oneTimeEvents, year, effectiveInflation);
+    const { inheritance, expenses: oneTimeExpenses, downsizingEvents } = getOneTimeEventsForAge(age, oneTimeEvents, year, effectiveInflation);
 
     const oasReceiving = totalOas > 0;
     const rrifWithdrawalEstimate = (age >= 72 && (balances.rrsp + balances.rrsp_spouse) > 0)
@@ -1177,10 +1198,51 @@ export function runSingleProjection(
       cumulativeTfsaContributed += addlAllowed;
     }
 
-    const livingExpenses = adjustForInflation(getExpensesForAge(age, expenseLadder), year, effectiveInflation) * expenseMultiplier;
+    for (const downsizingEvent of downsizingEvents) {
+      if (balances.primary_residence <= 0) break;
+      const grossProceeds = adjustForInflation(downsizingEvent.amount, year, effectiveInflation);
+      const proceeds = Math.min(grossProceeds, balances.primary_residence);
+      if (proceeds <= 0) continue;
+
+      const preSaleResidence = balances.primary_residence;
+      const acbReduction = preSaleResidence > 0
+        ? balances.primary_residence_acb * (proceeds / preSaleResidence)
+        : 0;
+
+      balances.primary_residence -= proceeds;
+      balances.primary_residence_acb = Math.max(0, balances.primary_residence_acb - acbReduction);
+      balances.non_reg_primary += proceeds;
+      balances.non_reg_primary_acb += proceeds;
+
+      if ((downsizingEvent.expense_reduction_pct ?? 0) > 0) {
+        permanentExpenseMultiplier *= Math.max(0, 1 - (downsizingEvent.expense_reduction_pct ?? 0) / 100);
+      }
+    }
+
+    let mortgagePayment = 0;
+    if (remainingMortgageBalance > 0 && scenario.mortgage && age <= scenario.mortgage.amortization_end_age) {
+      const remainingYears = Math.max(1, scenario.mortgage.amortization_end_age - age + 1);
+      mortgagePayment = calcAnnualMortgagePayment(remainingMortgageBalance, scenario.mortgage.rate, remainingYears);
+      const mortgageInterest = remainingMortgageBalance * (scenario.mortgage.rate / 100);
+      const mortgagePrincipal = Math.max(0, mortgagePayment - mortgageInterest);
+      remainingMortgageBalance = Math.max(0, remainingMortgageBalance - mortgagePrincipal);
+    }
+
+    const annualTaxCredits: TaxCreditInputs = {
+      hasDisabilityTaxCredit: scenario.primary_has_dtc ?? false,
+      medicalExpenses: adjustForInflation(scenario.medical_expenses_annual ?? 0, year, effectiveInflation),
+      charitableDonations: adjustForInflation(scenario.charitable_donations_annual ?? 0, year, effectiveInflation),
+    };
+    const spouseTaxCredits: TaxCreditInputs = {
+      hasDisabilityTaxCredit: false,
+      medicalExpenses: 0,
+      charitableDonations: 0,
+    };
+
+    const livingExpenses = adjustForInflation(getExpensesForAge(age, expenseLadder), year, effectiveInflation) * permanentExpenseMultiplier;
     const healthcareExpenses = getHealthcareExpensesForAge(age, healthcareSteps, year, scenario.healthcare_inflation ?? effectiveInflation);
     const totalExpensesNeeded = livingExpenses + healthcareExpenses + oneTimeExpenses;
-    const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions;
+    const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions + mortgagePayment;
 
     const guaranteedIncome = salary + totalCpp + totalOas + totalDbPension + gisAmount + inheritance;
 
@@ -1211,7 +1273,9 @@ export function runSingleProjection(
           effectiveInflation,
           undefined,
           age,
-          candidatePensionIncomeForCredit
+          candidatePensionIncomeForCredit,
+          0,
+          annualTaxCredits
         );
         const spousePensionForCredit = spouseCpp + candidateWithdrawals.rrsp_spouse + spouseDbPensionBase;
         const spouseCalc = calculateTotalTax(
@@ -1223,7 +1287,9 @@ export function runSingleProjection(
           effectiveInflation,
           undefined,
           spouseAge,
-          spousePensionForCredit
+          spousePensionForCredit,
+          0,
+          spouseTaxCredits
         );
 
         return {
@@ -1246,7 +1312,9 @@ export function runSingleProjection(
         effectiveInflation,
         undefined,
         age,
-        candidatePensionIncomeForCredit
+        candidatePensionIncomeForCredit,
+        0,
+        annualTaxCredits
       );
 
       let federalTax = primaryCalc.federal;
@@ -1265,7 +1333,9 @@ export function runSingleProjection(
           effectiveInflation,
           undefined,
           spouseAge,
-          spousePensionForCredit
+          spousePensionForCredit,
+          0,
+          spouseTaxCredits
         );
         federalTax += spouseCalc.federal;
         provincialTax += spouseCalc.provincial;
@@ -1386,7 +1456,9 @@ export function runSingleProjection(
         effectiveInflation,
         undefined,
         age,
-        pensionIncomeForCredit
+        pensionIncomeForCredit,
+        0,
+        annualTaxCredits
       );
       const spousePensionForCredit = spouseCpp + withdrawals.rrsp_spouse + spouseDbPensionBase;
       const spouseCalc = calculateTotalTax(
@@ -1398,7 +1470,9 @@ export function runSingleProjection(
         effectiveInflation,
         undefined,
         spouseAge,
-        spousePensionForCredit
+        spousePensionForCredit,
+        0,
+        spouseTaxCredits
       );
 
       federalTax = primaryCalc.federal + spouseCalc.federal;
@@ -1408,7 +1482,7 @@ export function runSingleProjection(
         spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback;
       totalTax = federalTax + provincialTax + cppEiOasTax;
     } else {
-      const primaryCalc = calculateTotalTax(primaryTaxableIncome, scenario.province, primarySalary, oas, year, effectiveInflation, undefined, age, pensionIncomeForCredit);
+      const primaryCalc = calculateTotalTax(primaryTaxableIncome, scenario.province, primarySalary, oas, year, effectiveInflation, undefined, age, pensionIncomeForCredit, 0, annualTaxCredits);
       federalTax = primaryCalc.federal;
       provincialTax = primaryCalc.provincial;
       cppEiOasTax = primaryCalc.cpp + primaryCalc.ei + primaryCalc.oasClawback;
@@ -1417,7 +1491,7 @@ export function runSingleProjection(
       if (isCouple) {
         const spouseTaxable = spouseTaxableIncomeBase;
         const spousePensionForCredit = spouseCpp + spouseDbPensionBase;
-        const spouseCalc = calculateTotalTax(spouseTaxable, scenario.province, spouseSalary, spouseOas, year, effectiveInflation, undefined, spouseAge, spousePensionForCredit);
+        const spouseCalc = calculateTotalTax(spouseTaxable, scenario.province, spouseSalary, spouseOas, year, effectiveInflation, undefined, spouseAge, spousePensionForCredit, 0, spouseTaxCredits);
         federalTax += spouseCalc.federal;
         provincialTax += spouseCalc.provincial;
         cppEiOasTax += spouseCalc.cpp + spouseCalc.ei + spouseCalc.oasClawback;
@@ -1428,10 +1502,10 @@ export function runSingleProjection(
     const nonRegWithdrawal = withdrawals.non_reg_primary + withdrawals.non_reg_spouse;
     const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa + withdrawals.fhsa;
     const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
-    const expenseShortfall = Math.max(0, totalExpensesNeeded - afterTaxIncome);
+    const expenseShortfall = Math.max(0, totalExpensesNeeded + mortgagePayment - afterTaxIncome);
 
     const isNetExpensesOnly = effectiveWithdrawalStrategy === 'net_expenses_only';
-    let surplus = afterTaxIncome - totalExpensesNeeded;
+    let surplus = afterTaxIncome - totalExpensesNeeded - mortgagePayment;
     let surplusToNonReg = 0;
 
     if (isNetExpensesOnly) {
@@ -1468,7 +1542,15 @@ export function runSingleProjection(
         scenario.province,
         year,
         effectiveInflation,
-        age
+        age,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          primaryResidenceBalance: balances.primary_residence,
+          outstandingDebt: remainingMortgageBalance,
+        }
       );
 
       const spouseTerminal = calculateTerminalTax(
@@ -1517,11 +1599,12 @@ export function runSingleProjection(
       cpp_ei_tax: cppEiOasTax,
       total_tax: totalTax,
       after_tax_income: afterTaxIncome,
+      mortgage_payment: mortgagePayment,
       living_expenses: livingExpenses,
       one_time_expenses: oneTimeExpenses,
       healthcare_expenses: healthcareExpenses,
       total_expenses: totalExpensesNeeded,
-      net_cash_flow: afterTaxIncome - totalExpensesNeeded,
+      net_cash_flow: afterTaxIncome - totalExpensesNeeded - mortgagePayment,
       expense_shortfall: expenseShortfall,
       rrsp_contribution: contributions.rrsp + contributions.rrsp_spouse,
       tfsa_contribution: contributions.tfsa,
@@ -1539,7 +1622,9 @@ export function runSingleProjection(
       non_reg_acb: balances.non_reg_primary_acb + balances.non_reg_spouse_acb,
       non_reg_acb_primary: balances.non_reg_primary_acb,
       non_reg_acb_spouse: balances.non_reg_spouse_acb,
-      total_balance: balances.rrsp + balances.rrsp_spouse + balances.tfsa + balances.fhsa + balances.non_reg_primary + balances.non_reg_spouse,
+      total_balance: balances.rrsp + balances.rrsp_spouse + balances.tfsa + balances.fhsa + balances.non_reg_primary + balances.non_reg_spouse + balances.primary_residence - remainingMortgageBalance,
+      mortgage_balance: remainingMortgageBalance,
+      primary_residence_balance: balances.primary_residence,
       terminal_tax: terminalTax,
       net_estate_value: netEstateValue,
       gis_benefit: gisAmount > 0 ? gisAmount : undefined,

@@ -34,6 +34,7 @@ import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataServic
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import { estimateMarketAssumptions } from './lib/marketAssumptions';
 import { DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
+import type { Suggestion } from './lib/suggestionEngine';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
 
 interface SavedResult {
@@ -159,6 +160,9 @@ function App() {
     cpp_start_age: 65,
     cpp_amount_65: 15000,
     oas_start_age: 65,
+    primary_has_dtc: false,
+    medical_expenses_annual: 0,
+    charitable_donations_annual: 0,
     cad_equity_weight: 60,
     us_equity_weight: 40,
     int_equity_weight: 0,
@@ -176,7 +180,7 @@ function App() {
   const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | undefined>();
   const [optimizedProjections, setOptimizedProjections] = useState<YearlyProjection[] | null>(null);
   const [optimizedMonteCarloResult, setOptimizedMonteCarloResult] = useState<MonteCarloResult | undefined>();
-  const [activeSuggestion, setActiveSuggestion] = useState<any>(null);
+  const [activeSuggestion, setActiveSuggestion] = useState<Suggestion | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [mcProgress, setMcProgress] = useState<{ completed: number; total: number } | null>(null);
   const [savedResults, setSavedResults] = useState<SavedResult[]>([]);
@@ -359,12 +363,12 @@ function App() {
     setSavedResults(prev => [...prev, { name: scenario.name, projections, color }]);
   };
 
-  const handleApplySuggestion = async (suggestion: any) => {
+  const handleApplySuggestion = async (suggestion: Suggestion) => {
     setActiveSuggestion(suggestion);
     setOptimizedProjections(null);
     setOptimizedMonteCarloResult(undefined);
 
-    const overrides: ProjectionOverrides = suggestion?.overrides ?? {};
+    const overrides: ProjectionOverrides = suggestion.overrides ?? {};
     const scenarioUpdates: Partial<Scenario> = {};
 
     if (overrides.retirementAge != null) {
@@ -374,15 +378,30 @@ function App() {
       scenarioUpdates.withdrawal_strategy = overrides.withdrawalStrategy;
     }
 
-    const nextScenario = { ...scenario, ...scenarioUpdates };
-    if (Object.keys(scenarioUpdates).length > 0) {
-      setScenario(nextScenario);
-    }
+    const comparisonScenario = { ...scenario, ...scenarioUpdates };
 
     try {
-      await runSimulation(nextScenario, overrides);
+      setIsCalculating(true);
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      const comparisonResult = runSingleProjection(
+        comparisonScenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        undefined,
+        undefined,
+        undefined,
+        assetAllocations,
+        undefined,
+        overrides
+      );
+      setOptimizedProjections(comparisonResult);
     } catch (error) {
       console.error('Error applying suggestion:', error);
+    } finally {
+      setIsCalculating(false);
     }
   };
 

@@ -1,5 +1,16 @@
-import { YearlyProjection, Scenario, MonteCarloResult } from '../types/retirement';
+import {
+  YearlyProjection,
+  Scenario,
+  MonteCarloResult,
+  IncomeSource,
+  SavingsAccount,
+  ExpenseLadder,
+  HealthcareStep,
+  OneTimeEvent,
+  AssetAllocation,
+} from '../types/retirement';
 import { ProjectionOverrides } from './projectionEngine';
+import { runSingleProjection } from './projectionEngine';
 
 export interface Suggestion {
   id: string;
@@ -8,12 +19,69 @@ export interface Suggestion {
   benefit: string;
   overrides: ProjectionOverrides;
   priority: number;
+  projected_value_add: number;
+  projected_tax_savings: number;
+  kind: 'improvement' | 'tradeoff';
+}
+
+export interface ComparativeAnalysisContext {
+  incomeSources: IncomeSource[];
+  savingsAccounts: SavingsAccount[];
+  expenseLadder: ExpenseLadder[];
+  healthcareSteps: HealthcareStep[];
+  oneTimeEvents: OneTimeEvent[];
+  assetAllocations: AssetAllocation[];
+}
+
+function isEffectivelyEqual(left: number, right: number, tolerance: number = 1): boolean {
+  return Math.abs(left - right) <= tolerance;
+}
+
+function dedupeSuggestionsByOutcome(suggestions: Suggestion[]): Suggestion[] {
+  const deduped: Suggestion[] = [];
+
+  for (const suggestion of suggestions) {
+    const alreadyRepresented = deduped.some(existing =>
+      existing.kind === suggestion.kind &&
+      isEffectivelyEqual(existing.projected_value_add, suggestion.projected_value_add) &&
+      isEffectivelyEqual(existing.projected_tax_savings, suggestion.projected_tax_savings)
+    );
+
+    if (!alreadyRepresented) {
+      deduped.push(suggestion);
+    }
+  }
+
+  return deduped;
+}
+
+function formatComparisonBenefit(projectedValueAdd: number, projectedTaxSavings: number, fallback: string): string {
+  if (!Number.isFinite(projectedValueAdd) || !Number.isFinite(projectedTaxSavings)) {
+    return fallback;
+  }
+
+  const estateImpact = projectedValueAdd >= 0
+    ? `increases your estate value by ${formatCurrency(projectedValueAdd)}`
+    : `reduces your estate value by ${formatCurrency(Math.abs(projectedValueAdd))}`;
+
+  const taxImpact = projectedTaxSavings >= 0
+    ? `reduces lifetime tax by ${formatCurrency(projectedTaxSavings)}`
+    : `increases lifetime tax by ${formatCurrency(Math.abs(projectedTaxSavings))}`;
+
+  return `This strategy ${estateImpact} and ${taxImpact}.`;
+}
+
+function formatCurrency(value: number): string {
+  const absValue = Math.abs(Math.round(value));
+  const prefix = value < 0 ? '-' : '';
+  return `${prefix}$${absValue.toLocaleString()}`;
 }
 
 export function generateSuggestions(
   projections: YearlyProjection[],
   scenario: Scenario,
-  monteCarloResult?: MonteCarloResult
+  monteCarloResult?: MonteCarloResult,
+  comparisonContext?: ComparativeAnalysisContext
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
 
@@ -40,7 +108,10 @@ export function generateSuggestions(
         disableBracketFilling: true,
         disableRrspExhaustion: false
       },
-      priority: 2
+      priority: 2,
+      projected_value_add: 0,
+      projected_tax_savings: 0,
+      kind: 'improvement',
     });
   }
 
@@ -56,7 +127,10 @@ export function generateSuggestions(
         disableForcedWithdrawals: false,
         disableBracketFilling: false
       },
-      priority: 1
+      priority: 1,
+      projected_value_add: 0,
+      projected_tax_savings: 0,
+      kind: 'improvement',
     });
   }
 
@@ -74,7 +148,10 @@ export function generateSuggestions(
       overrides: {
         expenseMultiplier: 1.20
       },
-      priority: 3
+      priority: 3,
+      projected_value_add: 0,
+      projected_tax_savings: 0,
+      kind: 'improvement',
     });
   }
 
@@ -91,7 +168,10 @@ export function generateSuggestions(
       overrides: {
         retirementAge: suggestedRetirementAge
       },
-      priority: 1
+      priority: 1,
+      projected_value_add: 0,
+      projected_tax_savings: 0,
+      kind: 'improvement',
     });
   }
 
@@ -107,7 +187,10 @@ export function generateSuggestions(
         overrides: {
           additionalMonthlySavings: 500
         },
-        priority: 2
+        priority: 2,
+        projected_value_add: 0,
+        projected_tax_savings: 0,
+        kind: 'improvement',
       });
     }
   }
@@ -123,7 +206,10 @@ export function generateSuggestions(
         withdrawalStrategy: 'net_expenses_only',
         disableBracketFilling: true
       },
-      priority: 4
+      priority: 4,
+      projected_value_add: 0,
+      projected_tax_savings: 0,
+      kind: 'improvement',
     });
   }
 
@@ -142,12 +228,84 @@ export function generateSuggestions(
       overrides: {
         withdrawalStrategy: 'minimize_lifetime_tax'
       },
-      priority: 1
+      priority: 1,
+      projected_value_add: 0,
+      projected_tax_savings: 0,
+      kind: 'improvement',
     });
   }
 
   // Sort by priority (lower number = higher priority)
-  return suggestions.sort((a, b) => a.priority - b.priority);
+  const sortedSuggestions = suggestions.sort((a, b) => a.priority - b.priority);
+
+  if (!comparisonContext) {
+    return sortedSuggestions;
+  }
+
+  return runComparativeAnalysis(sortedSuggestions, projections, scenario, comparisonContext);
+}
+
+export function runComparativeAnalysis(
+  suggestions: Suggestion[],
+  baselineProjections: YearlyProjection[],
+  scenario: Scenario,
+  comparisonContext: ComparativeAnalysisContext
+): Suggestion[] {
+  if (suggestions.length === 0 || baselineProjections.length === 0) {
+    return suggestions;
+  }
+
+  const baselineMetrics = calculateComparisonMetrics(baselineProjections);
+
+  const analyzedSuggestions = suggestions.map(suggestion => {
+    const scenarioOverrides: Partial<Scenario> = {};
+    if (suggestion.overrides.retirementAge != null) {
+      scenarioOverrides.retirement_age = suggestion.overrides.retirementAge;
+    }
+    if (suggestion.overrides.withdrawalStrategy != null) {
+      scenarioOverrides.withdrawal_strategy = suggestion.overrides.withdrawalStrategy;
+    }
+
+    const comparativeScenario = {
+      ...scenario,
+      ...scenarioOverrides,
+    };
+
+    const comparativeProjection = runSingleProjection(
+      comparativeScenario,
+      comparisonContext.incomeSources,
+      comparisonContext.savingsAccounts,
+      comparisonContext.expenseLadder,
+      comparisonContext.healthcareSteps,
+      comparisonContext.oneTimeEvents,
+      undefined,
+      undefined,
+      undefined,
+      comparisonContext.assetAllocations,
+      undefined,
+      suggestion.overrides
+    );
+
+    const comparativeMetrics = calculateComparisonMetrics(comparativeProjection);
+    const projectedValueAdd = comparativeMetrics.finalNetWorth - baselineMetrics.finalNetWorth;
+    const projectedTaxSavings = baselineMetrics.lifetimeTaxes - comparativeMetrics.lifetimeTaxes;
+    const kind = projectedValueAdd >= 0 && projectedTaxSavings >= 0 ? 'improvement' : 'tradeoff';
+
+    return {
+      ...suggestion,
+      projected_value_add: projectedValueAdd,
+      projected_tax_savings: projectedTaxSavings,
+      kind,
+      benefit: formatComparisonBenefit(projectedValueAdd, projectedTaxSavings, suggestion.benefit),
+    };
+  });
+
+  return dedupeSuggestionsByOutcome(analyzedSuggestions).sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === 'improvement' ? -1 : 1;
+    }
+    return left.priority - right.priority;
+  });
 }
 
 export interface ComparisonMetrics {

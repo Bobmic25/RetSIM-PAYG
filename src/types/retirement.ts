@@ -3,7 +3,7 @@ export type ReturnType = 'linear' | 'monte_carlo';
 export type WithdrawalStrategy = 'maximize_spending' | 'maximize_estate' | 'tax_efficient' | 'net_expenses_only' | 'rrsp_meltdown' | 'minimize_lifetime_tax';
 export type AccountType = 'rrsp' | 'tfsa' | 'fhsa' | 'non_reg';
 export type IncomeSourceType = 'salary' | 'pension' | 'rental' | 'other';
-export type EventType = 'inheritance' | 'expense';
+export type EventType = 'inheritance' | 'expense' | 'downsizing';
 export type Person = 'primary' | 'spouse';
 export type AssetClass = 'stocks' | 'bonds' | 'cash' | 'real_estate' | 'other';
 export type RiskProfile = 'conservative' | 'balanced' | 'aggressive';
@@ -20,6 +20,12 @@ export interface HealthcareStep {
   annual_cost: number;
   is_insured: boolean;
   description: string;
+}
+
+export interface Mortgage {
+  balance: number;
+  rate: number;
+  amortization_end_age: number;
 }
 
 export interface Scenario {
@@ -58,6 +64,10 @@ export interface Scenario {
   spouse_db_pension_amount?: number;
   spouse_db_pension_start_age?: number;
   spouse_db_pension_indexed?: boolean;
+  primary_has_dtc?: boolean;
+  medical_expenses_annual?: number;
+  charitable_donations_annual?: number;
+  mortgage?: Mortgage;
   life_expectancy?: number;
   spouse_life_expectancy?: number;
   healthcare_inflation?: number;
@@ -119,6 +129,7 @@ export interface SavingsAccount {
   contribution_end_age: number;
   inflation_linked?: boolean;
   deduct_from_salary?: boolean;
+  is_primary_residence?: boolean;
 }
 
 export interface ExpenseLadder {
@@ -139,6 +150,7 @@ export interface OneTimeEvent {
   age: number;
   amount: number;
   tax_rate?: number;
+  expense_reduction_pct?: number;
 }
 
 export interface YearlyProjection {
@@ -164,6 +176,7 @@ export interface YearlyProjection {
   cpp_ei_tax: number;
   total_tax: number;
   after_tax_income: number;
+  mortgage_payment?: number;
   living_expenses: number;
   one_time_expenses: number;
   healthcare_expenses: number;
@@ -196,6 +209,8 @@ export interface YearlyProjection {
   salary_deducted_after_tax_contributions?: number;
   primary_salary: number;
   total_balance: number;
+  mortgage_balance?: number;
+  primary_residence_balance?: number;
   survival_probability?: number;
   terminal_tax?: number;
   net_estate_value?: number;

@@ -57,6 +57,15 @@ export interface TaxAudit {
   ageAmountCredit: number;
   pensionIncomeCreditBase: number;
   pensionIncomeCredit: number;
+  disabilityAmount: number;
+  disabilityTaxCreditFederal: number;
+  disabilityTaxCreditProvincial: number;
+  medicalExpenseEligibleAmount: number;
+  medicalExpenseCreditFederal: number;
+  medicalExpenseCreditProvincial: number;
+  charitableDonations: number;
+  charitableDonationCreditFederal: number;
+  charitableDonationCreditProvincial: number;
   federalNetTax: number;
   provincialNetTax: number;
   ontarioSurtax: number;
@@ -67,6 +76,12 @@ export interface TaxAudit {
   totalTax: number;
   effectiveRate: number;
   appliedData: TaxData;
+}
+
+export interface TaxCreditInputs {
+  hasDisabilityTaxCredit?: boolean;
+  medicalExpenses?: number;
+  charitableDonations?: number;
 }
 
 export const FEDERAL_BRACKETS_2026: TaxBracket[] = [
@@ -212,6 +227,57 @@ const AGE_AMOUNT_2026 = 8396;
 const AGE_AMOUNT_PHASE_OUT_START_2026 = 42335;
 const AGE_AMOUNT_PHASE_OUT_RATE = 0.15;
 const PENSION_INCOME_CREDIT_MAX_2026 = 2000;
+const DISABILITY_AMOUNT_2026 = 10138;
+const PROVINCIAL_DISABILITY_AMOUNT_2026: Record<Province, number> = {
+  AB: DISABILITY_AMOUNT_2026,
+  BC: DISABILITY_AMOUNT_2026,
+  MB: DISABILITY_AMOUNT_2026,
+  NB: DISABILITY_AMOUNT_2026,
+  NL: DISABILITY_AMOUNT_2026,
+  NT: DISABILITY_AMOUNT_2026,
+  NS: DISABILITY_AMOUNT_2026,
+  NU: DISABILITY_AMOUNT_2026,
+  ON: DISABILITY_AMOUNT_2026,
+  PE: DISABILITY_AMOUNT_2026,
+  QC: DISABILITY_AMOUNT_2026,
+  SK: DISABILITY_AMOUNT_2026,
+  YT: DISABILITY_AMOUNT_2026,
+};
+const MEDICAL_EXPENSE_THRESHOLD_2026 = 2900;
+const CHARITABLE_DONATION_LOW_RATE = 0.15;
+const CHARITABLE_DONATION_HIGH_RATE = 0.29;
+const CHARITABLE_DONATION_TOP_RATE = 0.33;
+const CHARITABLE_DONATION_FIRST_TIER = 200;
+const PROVINCIAL_DONATION_LOW_RATES: Record<Province, number> = {
+  AB: 0.10,
+  BC: 0.0506,
+  MB: 0.108,
+  NB: 0.094,
+  NL: 0.087,
+  NT: 0.059,
+  NS: 0.0879,
+  NU: 0.04,
+  ON: 0.0505,
+  PE: 0.0965,
+  QC: 0.14,
+  SK: 0.105,
+  YT: 0.064,
+};
+const PROVINCIAL_DONATION_HIGH_RATES: Record<Province, number> = {
+  AB: 0.15,
+  BC: 0.205,
+  MB: 0.174,
+  NB: 0.195,
+  NL: 0.208,
+  NT: 0.1405,
+  NS: 0.21,
+  NU: 0.115,
+  ON: 0.1316,
+  PE: 0.187,
+  QC: 0.2575,
+  SK: 0.145,
+  YT: 0.15,
+};
 const CAPITAL_GAINS_TIER1_THRESHOLD_2026 = 250000;
 const CAPITAL_GAINS_INCLUSION_RATE_TIER1 = 0.5;
 const CAPITAL_GAINS_INCLUSION_RATE_TIER2 = 0.667;
@@ -393,6 +459,61 @@ function calcPensionIncomeCredit(pensionIncome: number, yearIndex: number, infla
   return Math.min(pensionIncome, maxCredit);
 }
 
+function calcDisabilityAmount(province: Province, yearIndex: number, inflationRate: number): { federal: number; provincial: number } {
+  const factor = Math.pow(1 + inflationRate / 100, yearIndex);
+  return {
+    federal: DISABILITY_AMOUNT_2026 * factor,
+    provincial: (PROVINCIAL_DISABILITY_AMOUNT_2026[province] ?? DISABILITY_AMOUNT_2026) * factor,
+  };
+}
+
+function calcEligibleMedicalExpenseAmount(
+  medicalExpenses: number,
+  income: number,
+  yearIndex: number,
+  inflationRate: number
+): number {
+  if (medicalExpenses <= 0) return 0;
+  const factor = Math.pow(1 + inflationRate / 100, yearIndex);
+  const threshold = Math.min(Math.max(0, income) * 0.03, MEDICAL_EXPENSE_THRESHOLD_2026 * factor);
+  return Math.max(0, medicalExpenses - threshold);
+}
+
+function calcCharitableDonationCredits(
+  donations: number,
+  income: number,
+  province: Province,
+  taxData: TaxData
+): { federal: number; provincial: number } {
+  if (donations <= 0) {
+    return { federal: 0, provincial: 0 };
+  }
+
+  const firstTier = Math.min(donations, CHARITABLE_DONATION_FIRST_TIER);
+  const excess = Math.max(0, donations - CHARITABLE_DONATION_FIRST_TIER);
+  const topBracketStart = taxData.federalBrackets[taxData.federalBrackets.length - 1]?.min ?? Infinity;
+  const highRateEligible = Math.min(excess, Math.max(0, income - topBracketStart));
+  const standardExcess = Math.max(0, excess - highRateEligible);
+
+  return {
+    federal:
+      firstTier * CHARITABLE_DONATION_LOW_RATE +
+      standardExcess * CHARITABLE_DONATION_HIGH_RATE +
+      highRateEligible * CHARITABLE_DONATION_TOP_RATE,
+    provincial:
+      firstTier * (PROVINCIAL_DONATION_LOW_RATES[province] ?? taxData.provincialBrackets[0]?.rate ?? 0) +
+      excess * (PROVINCIAL_DONATION_HIGH_RATES[province] ?? taxData.provincialBrackets[taxData.provincialBrackets.length - 1]?.rate ?? 0),
+  };
+}
+
+function normalizeTaxCreditInputs(taxCredits?: TaxCreditInputs): Required<TaxCreditInputs> {
+  return {
+    hasDisabilityTaxCredit: taxCredits?.hasDisabilityTaxCredit ?? false,
+    medicalExpenses: Math.max(0, taxCredits?.medicalExpenses ?? 0),
+    charitableDonations: Math.max(0, taxCredits?.charitableDonations ?? 0),
+  };
+}
+
 function calcCPPContribution(employmentIncome: number): number {
   if (employmentIncome <= CPP_BASIC_EXEMPTION_2026) return 0;
   const tier1 = Math.min(employmentIncome - CPP_BASIC_EXEMPTION_2026, CPP_YMPE_2026 - CPP_BASIC_EXEMPTION_2026);
@@ -420,9 +541,11 @@ export function computeTaxAudit(
   liveData?: LiveTaxData | null,
   age: number = 0,
   pensionIncome: number = 0,
-  eligibleDividends: number = 0
+  eligibleDividends: number = 0,
+  taxCredits: TaxCreditInputs = {}
 ): TaxAudit {
   const taxData = getTaxData(province, yearIndex, inflationRate, liveData);
+  const normalizedCredits = normalizeTaxCreditInputs(taxCredits);
 
   const fedAudit = calcBracketTaxAudit(income, taxData.federalBrackets);
   const provAudit = calcBracketTaxAudit(income, taxData.provincialBrackets);
@@ -435,13 +558,50 @@ export function computeTaxAudit(
   const ageAmountCredit = ageAmountValue * taxData.federalBrackets[0].rate;
   const pensionCreditBase = calcPensionIncomeCredit(pensionIncome, yearIndex, inflationRate);
   const pensionIncomeCredit = pensionCreditBase * taxData.federalBrackets[0].rate;
+  const disabilityAmounts = normalizedCredits.hasDisabilityTaxCredit
+    ? calcDisabilityAmount(province, yearIndex, inflationRate)
+    : { federal: 0, provincial: 0 };
+  const disabilityTaxCreditFederal = disabilityAmounts.federal * taxData.federalBrackets[0].rate;
+  const disabilityTaxCreditProvincial = disabilityAmounts.provincial * taxData.provincialBrackets[0].rate;
+  const medicalExpenseEligibleAmount = calcEligibleMedicalExpenseAmount(
+    normalizedCredits.medicalExpenses,
+    income,
+    yearIndex,
+    inflationRate
+  );
+  const medicalExpenseCreditFederal = medicalExpenseEligibleAmount * taxData.federalBrackets[0].rate;
+  const medicalExpenseCreditProvincial = medicalExpenseEligibleAmount * taxData.provincialBrackets[0].rate;
+  const charitableDonationCredits = calcCharitableDonationCredits(
+    normalizedCredits.charitableDonations,
+    income,
+    province,
+    taxData
+  );
 
   const dividendFederalCredit = eligibleDividends > 0 ? calcEligibleDividendTaxCredit(eligibleDividends, province, true) : 0;
   const dividendProvincialCredit = eligibleDividends > 0 ? calcEligibleDividendTaxCredit(eligibleDividends, province, false) : 0;
 
-  const federalNetTax = Math.max(0, fedAudit.total - federalBPACredit - ageAmountCredit - pensionIncomeCredit - dividendFederalCredit);
+  const federalNetTax = Math.max(
+    0,
+    fedAudit.total -
+      federalBPACredit -
+      ageAmountCredit -
+      pensionIncomeCredit -
+      disabilityTaxCreditFederal -
+      medicalExpenseCreditFederal -
+      charitableDonationCredits.federal -
+      dividendFederalCredit
+  );
 
-  let baseProvincialNetTax = Math.max(0, provAudit.total - provincialBPACredit - dividendProvincialCredit);
+  let baseProvincialNetTax = Math.max(
+    0,
+    provAudit.total -
+      provincialBPACredit -
+      disabilityTaxCreditProvincial -
+      medicalExpenseCreditProvincial -
+      charitableDonationCredits.provincial -
+      dividendProvincialCredit
+  );
   let provincialNetTax = baseProvincialNetTax;
   let ontarioSurtax = 0;
   let ontarioHealthPremium = 0;
@@ -473,6 +633,15 @@ export function computeTaxAudit(
     ageAmountCredit,
     pensionIncomeCreditBase: pensionCreditBase,
     pensionIncomeCredit,
+    disabilityAmount: disabilityAmounts.federal,
+    disabilityTaxCreditFederal,
+    disabilityTaxCreditProvincial,
+    medicalExpenseEligibleAmount,
+    medicalExpenseCreditFederal,
+    medicalExpenseCreditProvincial,
+    charitableDonations: normalizedCredits.charitableDonations,
+    charitableDonationCreditFederal: charitableDonationCredits.federal,
+    charitableDonationCreditProvincial: charitableDonationCredits.provincial,
     federalNetTax,
     provincialNetTax,
     ontarioSurtax,
@@ -502,7 +671,8 @@ export function calculateTotalTax(
   liveData?: LiveTaxData | null,
   age: number = 0,
   pensionIncome: number = 0,
-  eligibleDividends: number = 0
+  eligibleDividends: number = 0,
+  taxCredits: TaxCreditInputs = {}
 ): {
   federal: number;
   provincial: number;
@@ -511,16 +681,33 @@ export function calculateTotalTax(
   oasClawback: number;
   total: number;
 } {
-  if (liveData === undefined && eligibleDividends === 0) {
+  const normalizedCredits = normalizeTaxCreditInputs(taxCredits);
+
+  if (liveData === undefined) {
     const roundedIncome = Math.round(income / 10) * 10;
     const roundedEmp = Math.round(employmentIncome / 10) * 10;
     const roundedOas = Math.round(oasAmount / 10) * 10;
     const roundedPension = Math.round(pensionIncome / 10) * 10;
-    const cacheKey = `${roundedIncome}|${province}|${roundedEmp}|${roundedOas}|${yearIndex}|${inflationRate}|${age >= 65 ? 1 : 0}|${roundedPension}`;
+    const roundedEligibleDividends = Math.round(eligibleDividends / 10) * 10;
+    const roundedMedical = Math.round(normalizedCredits.medicalExpenses / 10) * 10;
+    const roundedDonations = Math.round(normalizedCredits.charitableDonations / 10) * 10;
+    const cacheKey = `${roundedIncome}|${province}|${roundedEmp}|${roundedOas}|${yearIndex}|${inflationRate}|${age >= 65 ? 1 : 0}|${roundedPension}|${roundedEligibleDividends}|${normalizedCredits.hasDisabilityTaxCredit ? 1 : 0}|${roundedMedical}|${roundedDonations}`;
     const cached = _taxCache.get(cacheKey);
     if (cached) return cached;
 
-    const audit = computeTaxAudit(roundedIncome, province, roundedEmp, roundedOas, yearIndex, inflationRate, null, age, roundedPension, 0);
+    const audit = computeTaxAudit(
+      roundedIncome,
+      province,
+      roundedEmp,
+      roundedOas,
+      yearIndex,
+      inflationRate,
+      null,
+      age,
+      roundedPension,
+      roundedEligibleDividends,
+      normalizedCredits
+    );
     const result = {
       federal: audit.federalNetTax,
       provincial: audit.provincialNetTax,
@@ -534,7 +721,19 @@ export function calculateTotalTax(
     return result;
   }
 
-  const audit = computeTaxAudit(income, province, employmentIncome, oasAmount, yearIndex, inflationRate, liveData, age, pensionIncome, eligibleDividends);
+  const audit = computeTaxAudit(
+    income,
+    province,
+    employmentIncome,
+    oasAmount,
+    yearIndex,
+    inflationRate,
+    liveData,
+    age,
+    pensionIncome,
+    eligibleDividends,
+    normalizedCredits
+  );
   return {
     federal: audit.federalNetTax,
     provincial: audit.provincialNetTax,
@@ -620,10 +819,19 @@ export function calculateTerminalTax(
   spouseRrspBalance?: number,
   spouseNonRegBalance?: number,
   spouseNonRegAcb?: number,
-  spouseAge?: number
+  spouseAge?: number,
+  options?: {
+    primaryResidenceBalance?: number;
+    outstandingDebt?: number;
+    spousePrimaryResidenceBalance?: number;
+    spouseOutstandingDebt?: number;
+  }
 ): { terminalTax: number; netEstateValue: number; probateFee?: number } {
   if (spouseRrspBalance != null || spouseNonRegBalance != null || spouseNonRegAcb != null) {
-    const primary = calculateTerminalTax(rrspBalance, nonRegBalance, nonRegAcb, province, yearIndex, inflationRate, age);
+    const primary = calculateTerminalTax(rrspBalance, nonRegBalance, nonRegAcb, province, yearIndex, inflationRate, age, undefined, undefined, undefined, undefined, {
+      primaryResidenceBalance: options?.primaryResidenceBalance,
+      outstandingDebt: options?.outstandingDebt,
+    });
     const spouse = calculateTerminalTax(
       spouseRrspBalance ?? 0,
       spouseNonRegBalance ?? 0,
@@ -631,7 +839,15 @@ export function calculateTerminalTax(
       province,
       yearIndex,
       inflationRate,
-      spouseAge ?? age
+      spouseAge ?? age,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        primaryResidenceBalance: options?.spousePrimaryResidenceBalance,
+        outstandingDebt: options?.spouseOutstandingDebt,
+      }
     );
 
     return {
@@ -648,10 +864,10 @@ export function calculateTerminalTax(
   const taxResult = calculateTotalTax(totalTerminalIncome, province, 0, 0, yearIndex, inflationRate, undefined, age, 0);
   const incomeTax = taxResult.total;
 
-  const grossEstate = rrspBalance + nonRegBalance;
+  const grossEstate = rrspBalance + nonRegBalance + (options?.primaryResidenceBalance ?? 0);
   const probateFee = calcOntarioProbateFee(grossEstate, province, yearIndex, inflationRate);
   const terminalTax = incomeTax + probateFee;
-  const netEstateValue = grossEstate - terminalTax;
+  const netEstateValue = grossEstate - terminalTax - (options?.outstandingDebt ?? 0);
 
   return { terminalTax, netEstateValue, probateFee };
 }
