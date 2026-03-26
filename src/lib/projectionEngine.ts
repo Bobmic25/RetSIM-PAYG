@@ -31,7 +31,7 @@ import {
   generateStochasticInflationSequence,
   runMonteCarloMemoryEfficient
 } from './monteCarloEngine';
-import { DEFAULT_MANAGEMENT_FEE_PCT } from './constants';
+import { DEFAULT_LEGACY_GOAL, DEFAULT_MANAGEMENT_FEE_PCT } from './constants';
 import { HISTORICAL_MARKET_DATA } from './data/historicalMarketData';
 
 interface AccountBalances {
@@ -142,7 +142,7 @@ function calculatePortfolioBalance(balances: AccountBalances, remainingMortgageB
 }
 
 function calculateProjectionSuccess(projections: YearlyProjection[]): boolean {
-  return projections.every(year => year.total_balance >= -0.01 && (year.expense_shortfall ?? 0) <= 0.01);
+  return projections.every(year => year.total_balance >= -0.01);
 }
 
 function calculateStandardOfLivingStability(projections: YearlyProjection[]): number {
@@ -1404,7 +1404,72 @@ function buildComparisonRows(
   return Array.from(rowsByAge.values()).sort((left, right) => left.age - right.age);
 }
 
-export function getComparisonData(
+async function runProjectionForComparisonMode(
+  scenario: Scenario,
+  incomeSources: IncomeSource[],
+  savingsAccounts: SavingsAccount[],
+  expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
+  oneTimeEvents: OneTimeEvent[],
+  allocations?: AssetAllocation[]
+): Promise<YearlyProjection[]> {
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+
+  switch (scenario.return_type) {
+    case 'historical_backtesting': {
+      const result = runHistoricalBacktestSimulation(
+        scenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        allocations
+      );
+      return result.percentile_50;
+    }
+    case 'goal_seeking': {
+      const result = runGoalSeekingSimulation(
+        scenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        allocations
+      );
+      return result.percentile_50;
+    }
+    case 'monte_carlo': {
+      const result = await runMonteCarloSimulation(
+        scenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        undefined,
+        allocations
+      );
+      return result.percentile_50;
+    }
+    default:
+      return runSingleProjection(
+        scenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        undefined,
+        undefined,
+        undefined,
+        allocations
+      );
+  }
+}
+
+export async function getComparisonData(
   scenario: Scenario,
   incomeSources: IncomeSource[],
   savingsAccounts: SavingsAccount[],
@@ -1413,29 +1478,30 @@ export function getComparisonData(
   oneTimeEvents: OneTimeEvent[],
   savedScenarios: SavedComparisonResult[] = [],
   allocations?: AssetAllocation[]
-): ComparisonDataset {
-  const strategyProjections = {} as Record<Scenario['withdrawal_strategy'], YearlyProjection[]>;
-  const strategySeries: ComparisonSeriesDefinition[] = COMPARISON_STRATEGIES.map(strategy => {
-    strategyProjections[strategy.id] = runSingleProjection(
+): Promise<ComparisonDataset> {
+  const strategyEntries: Array<readonly [Scenario['withdrawal_strategy'], YearlyProjection[]]> = [];
+
+  for (const strategy of COMPARISON_STRATEGIES) {
+    const projections = await runProjectionForComparisonMode(
       { ...scenario, withdrawal_strategy: strategy.id },
       incomeSources,
       savingsAccounts,
       expenseLadder,
       healthcareSteps,
       oneTimeEvents,
-      undefined,
-      undefined,
-      undefined,
       allocations
     );
 
-    return {
-      key: `strategy:${strategy.id}`,
-      label: strategy.label,
-      color: strategy.color,
-      sourceType: 'strategy',
-    };
-  });
+    strategyEntries.push([strategy.id, projections] as const);
+  }
+
+  const strategyProjections = Object.fromEntries(strategyEntries) as Record<Scenario['withdrawal_strategy'], YearlyProjection[]>;
+  const strategySeries: ComparisonSeriesDefinition[] = COMPARISON_STRATEGIES.map(strategy => ({
+    key: `strategy:${strategy.id}`,
+    label: strategy.label,
+    color: strategy.color,
+    sourceType: 'strategy',
+  }));
 
   const savedSeries: ComparisonSeriesDefinition[] = savedScenarios.map((savedScenario, index) => ({
     key: `saved:${index}`,
@@ -2371,7 +2437,7 @@ export function runGoalSeekingSimulation(
   const lowerBound = 20000;
   const upperBound = 500000;
   const iterations = 24;
-  const legacyGoal = scenario.legacy_goal ?? 0;
+  const legacyGoal = scenario.legacy_goal ?? DEFAULT_LEGACY_GOAL;
   const baseRetirementSpending = Math.max(1, getExpensesForAge(overrides?.retirementAge ?? scenario.retirement_age, expenseLadder));
 
   let low = lowerBound;

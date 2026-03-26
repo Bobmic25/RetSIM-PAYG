@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, AlertTriangle, PieChart as PieChartIcon, MessageSquareText } from 'lucide-react';
+import { TrendingUp, DollarSign, Calendar, Target, Download, Copy, ReceiptText, HelpCircle, ShieldCheck, AlertTriangle, PieChart as PieChartIcon } from 'lucide-react';
 import PDFExport from './PDFExport';
 import NetWorthChart from './NetWorthChart';
 import CashFlowChart from './CashFlowChart';
@@ -10,13 +10,14 @@ import TaxInfoModal from './TaxInfoModal';
 import TaxVerificationPanel from './TaxVerificationPanel';
 import PortfolioBreakdownModal, { PortfolioSlice } from './PortfolioBreakdownModal';
 import AISuggestionsPanel from './AISuggestionsPanel';
-import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation, SavedComparisonResult } from '../types/retirement';
+import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation, SavedComparisonResult, ComparisonDataset } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
 import { computeTaxAudit, calcTieredCapitalGainInclusion } from '../lib/taxEngine';
 import { type LiveTaxData } from '../lib/taxDataService';
 import { generateSuggestions, calculateComparisonMetrics, type Suggestion } from '../lib/suggestionEngine';
 import { COMPARISON_STRATEGIES as WITHDRAWAL_STRATEGIES, getComparisonData } from '../lib/projectionEngine';
+import { DEFAULT_LEGACY_GOAL } from '../lib/constants';
 
 type RelativeScoreCard = {
   key: string;
@@ -97,6 +98,13 @@ const RETURN_MODE_LABELS: Record<Scenario['return_type'], string> = {
   goal_seeking: 'Goal-Seeking',
   dynamic_guardrails: 'Dynamic Guardrails',
   adaptive_withdrawal: 'Adaptive Withdrawal',
+};
+
+const EMPTY_COMPARISON_DATA: ComparisonDataset = {
+  cashFlowData: [],
+  taxData: [],
+  series: [],
+  strategyProjections: {} as ComparisonDataset['strategyProjections'],
 };
 
 interface ResultsDashboardProps {
@@ -243,6 +251,8 @@ export default function ResultsDashboard({
   const [hoveredStrategyId, setHoveredStrategyId] = useState<Scenario['withdrawal_strategy'] | null>(null);
   const [isComparisonMode, setIsComparisonMode] = useState(false);
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({});
+  const [comparisonData, setComparisonData] = useState<ComparisonDataset>(EMPTY_COMPARISON_DATA);
+  const [comparisonDataLoading, setComparisonDataLoading] = useState(false);
   // Used to notify ProjectionTable to re-run the CPP/OAS optimization after a suggestion is applied.
   const [optimTrigger, setOptimTrigger] = useState(0);
 
@@ -398,16 +408,40 @@ export default function ResultsDashboard({
     { label: 'Primary Residence', value: pv(lastYear.primary_residence_balance || 0, lastYear.year - 1), color: ACCOUNT_COLORS.primary_residence },
   ].filter(s => s.value > 0);
 
-  const comparisonData = useMemo(() => getComparisonData(
-    scenario,
-    incomeSources,
-    savingsAccounts,
-    expenseLadder,
-    healthcareSteps,
-    oneTimeEvents,
-    savedResults,
-    assetAllocations
-  ), [
+  useEffect(() => {
+    let isCancelled = false;
+
+    setComparisonDataLoading(true);
+    setComparisonData(EMPTY_COMPARISON_DATA);
+
+    getComparisonData(
+      scenario,
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      savedResults,
+      assetAllocations
+    )
+      .then(data => {
+        if (isCancelled) return;
+        setComparisonData(data);
+      })
+      .catch(error => {
+        if (isCancelled) return;
+        console.error('Error building comparison data:', error);
+        setComparisonData(EMPTY_COMPARISON_DATA);
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setComparisonDataLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
     scenario,
     incomeSources,
     savingsAccounts,
@@ -463,8 +497,18 @@ export default function ResultsDashboard({
   };
 
   const strategySummaryCards = useMemo(() => {
+    if (comparisonDataLoading) {
+      return [];
+    }
+
     const cards = WITHDRAWAL_STRATEGIES.map(strategy => {
-      const strategyProjections = comparisonData.strategyProjections[strategy.id] ?? projections;
+      const strategyProjections = strategy.id === scenario.withdrawal_strategy
+        ? projections
+        : (comparisonData.strategyProjections[strategy.id] ?? []);
+
+      if (!strategyProjections.length) {
+        return null;
+      }
 
       const strategyLast = strategyProjections[strategyProjections.length - 1];
       const strategyRetirementAge = strategyProjections.find(p => p.total_withdrawals > 0 || p.cpp > 0)?.age ?? scenario.retirement_age;
@@ -503,10 +547,11 @@ export default function ResultsDashboard({
         isActive: strategy.id === scenario.withdrawal_strategy,
         onClick: onWithdrawalStrategyChange ? () => onWithdrawalStrategyChange(strategy.id) : undefined,
       };
-    });
+    }).filter((card): card is NonNullable<typeof card> => card !== null);
 
     return addRelativeScores(cards);
   }, [
+    comparisonDataLoading,
     projections,
     showTodayDollars,
     onWithdrawalStrategyChange,
@@ -610,15 +655,6 @@ export default function ResultsDashboard({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-bold text-gray-900">Simulation Results</h2>
         <div className="flex gap-2 flex-wrap">
-          {onOpenAssistant && (
-            <button
-              onClick={onOpenAssistant}
-              className="flex items-center gap-2 px-4 py-2 border border-emerald-200 text-emerald-800 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors text-sm font-medium"
-            >
-              <MessageSquareText className="w-4 h-4" />
-              Ask Assistant
-            </button>
-          )}
           <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white text-sm">
             <span className={!showTodayDollars ? 'font-semibold text-blue-700' : 'text-gray-400'}>Future $</span>
             <button
@@ -680,7 +716,7 @@ export default function ResultsDashboard({
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard
           icon={DollarSign}
           label="Current Net Worth"
@@ -714,6 +750,13 @@ export default function ResultsDashboard({
           onInfoClick={() => setShowTaxModal(true)}
         />
         <StatCard
+          icon={TrendingUp}
+          label="Withdrawals in Retirement"
+          value={formatCurrency(totalRetirementWithdrawals)}
+          sub={`All post-retirement${showTodayDollars ? " (today's $)" : ''}`}
+          color="bg-emerald-500"
+        />
+        <StatCard
           icon={hasDistributionBands ? Target : isGoalSeekingMode ? Target : isAdaptiveMode ? ShieldCheck : isGuardrailMode ? ShieldCheck : TrendingUp}
           label={hasDistributionBands
             ? (forecastMode === 'historical_backtesting' ? 'Historical Survival' : 'Success Rate')
@@ -723,7 +766,7 @@ export default function ResultsDashboard({
                 ? 'Stability Score'
                 : isGuardrailMode
                   ? 'Guardrail Events'
-                  : 'Total Ret. Withdrawals'}
+                  : 'Projection Mode'}
           value={hasDistributionBands
             ? `${monteCarloResult?.success_rate.toFixed(1)}%`
             : isGoalSeekingMode
@@ -732,7 +775,7 @@ export default function ResultsDashboard({
                 ? `${(monteCarloResult?.stability_score ?? 100).toFixed(1)}`
                 : isGuardrailMode
                   ? `${summaryMessages.length}`
-                  : formatCurrency(totalRetirementWithdrawals)}
+                  : RETURN_MODE_LABELS[forecastMode]}
           sub={hasDistributionBands
             ? `${monteCarloResult?.iterations.toLocaleString()} scenarios`
             : isGoalSeekingMode
@@ -741,7 +784,7 @@ export default function ResultsDashboard({
                 ? 'Higher is steadier real spending'
                 : isGuardrailMode
                   ? 'Logged spending-rule activations'
-                  : `All post-retirement${showTodayDollars ? " (today's $)" : ''}`}
+                  : 'Active forecast model'}
           color="bg-blue-500"
         />
       </div>
@@ -814,7 +857,7 @@ export default function ResultsDashboard({
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-sm font-medium text-slate-900">Legacy Goal</p>
-              <p className="mt-1 text-2xl font-bold text-slate-700">{formatCurrency(monteCarloResult.legacy_goal ?? 0)}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-700">{formatCurrency(monteCarloResult.legacy_goal ?? DEFAULT_LEGACY_GOAL)}</p>
             </div>
           </div>
         </div>
@@ -1003,10 +1046,15 @@ export default function ResultsDashboard({
               <div>
                 <h3 className="font-semibold text-gray-900">Withdrawal Strategy Summaries</h3>
                 <p className="text-sm text-gray-500">
-                  The first row shows all six withdrawal strategies. Saved comparison snapshots continue on the next row automatically.
+                  The first row shows all six withdrawal strategies using the active return model. Saved comparison snapshots continue on the next row automatically.
                 </p>
               </div>
             </div>
+            {comparisonDataLoading ? (
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600">
+                Updating strategy summaries for {RETURN_MODE_LABELS[forecastMode].toLowerCase()}...
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
               {strategySummaryCards.map(card => {
                 const isHovered = hoveredStrategyId === card.strategyId;
@@ -1086,6 +1134,7 @@ export default function ResultsDashboard({
                 );
               })}
             </div>
+            )}
 
             {previewStrategySummary && (
               <div

@@ -3,7 +3,7 @@ import { Plus, Trash2, HelpCircle, X } from 'lucide-react';
 import { Scenario } from '../types/retirement';
 import { MONTE_CARLO_MAX_ITERATIONS, MONTE_CARLO_DEFAULT_ITERATIONS } from '../lib/monteCarloEngine';
 import { MarketAssumptions } from '../lib/marketAssumptions';
-import { DEFAULT_MANAGEMENT_FEE_PCT } from '../lib/constants';
+import { DEFAULT_LEGACY_GOAL, DEFAULT_MANAGEMENT_FEE_PCT } from '../lib/constants';
 
 interface ReturnsFormProps {
   scenario: Scenario;
@@ -433,7 +433,7 @@ export default function ReturnsForm({
               type="number"
               step="5000"
               min={0}
-              value={scenario.legacy_goal ?? 0}
+              value={scenario.legacy_goal ?? DEFAULT_LEGACY_GOAL}
               onChange={e => onChange({ legacy_goal: Math.max(0, parseFloat(e.target.value) || 0) })}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />

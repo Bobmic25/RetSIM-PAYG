@@ -42,7 +42,7 @@ import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataServic
 import { fetchLiveInflationData, getCachedInflationData, type LiveInflationData } from './lib/inflationDataService';
 import { setActiveLiveTaxData, clearTaxCache } from './lib/taxEngine';
 import { estimateMarketAssumptions } from './lib/marketAssumptions';
-import { DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
+import { DEFAULT_LEGACY_GOAL, DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
 import type { Suggestion } from './lib/suggestionEngine';
 import { buildAssistantContext, type AssistantEntryPoint } from './lib/assistantService';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
@@ -174,6 +174,7 @@ function App() {
     cad_equity_weight: 60,
     us_equity_weight: 40,
     int_equity_weight: 0,
+    legacy_goal: DEFAULT_LEGACY_GOAL,
     life_expectancy: 90,
     healthcare_inflation: 3.5
   });
@@ -567,6 +568,7 @@ function App() {
       cad_equity_weight: loadedCadWeight,
       us_equity_weight: loadedUsWeight,
       int_equity_weight: loadedIntWeight,
+      legacy_goal: data.scenario.legacy_goal ?? DEFAULT_LEGACY_GOAL,
       return_std_dev: data.scenario.return_std_dev ?? loadedMarketAssumptions.stdDev,
     });
     setIncomeSources(data.incomeSources);

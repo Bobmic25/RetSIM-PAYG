@@ -1,1 +1,2 @@
 export const DEFAULT_MANAGEMENT_FEE_PCT = 1.4;
+export const DEFAULT_LEGACY_GOAL = 150000;
