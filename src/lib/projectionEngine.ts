@@ -1830,37 +1830,44 @@ export function runSingleProjection(
 
     if (surplus > 0) {
       if (isCouple) {
-        const primarySurplus = surplus / 2;
-        const spouseSurplus = surplus - primarySurplus;
-        const primaryAllocation = allocateSurplusForPerson(
-          balances,
-          'primary',
-          age,
-          currentCalendarYear,
-          primarySurplus,
-          currentYearTfsaContributedPrimary,
-          cumulativeTfsaContributed.primary,
-          tfsaAnnualLimitLookup
+        // Household-level TFSA-first allocation: use whichever spouse still has room before
+        // sending any remainder to non-registered accounts.
+        const primaryTfsaRoomRemaining = Math.min(
+          getAvailableTfsaRoom(age, currentCalendarYear, cumulativeTfsaContributed.primary, tfsaAnnualLimitLookup),
+          getAnnualTfsaRoomRemaining(age, currentCalendarYear, currentYearTfsaContributedPrimary, tfsaAnnualLimitLookup)
         );
-        primarySurplusToTfsa = primaryAllocation.tfsaContribution;
-        surplusToNonReg += primaryAllocation.nonRegContribution;
-        currentYearTfsaContributedPrimary = primaryAllocation.currentYearTfsaContributed;
-        cumulativeTfsaContributed.primary = primaryAllocation.cumulativeTfsaContributed;
+        const spouseTfsaRoomRemaining = Math.min(
+          getAvailableTfsaRoom(spouseAge, currentCalendarYear, cumulativeTfsaContributed.spouse, tfsaAnnualLimitLookup),
+          getAnnualTfsaRoomRemaining(spouseAge, currentCalendarYear, currentYearTfsaContributedSpouse, tfsaAnnualLimitLookup)
+        );
 
-        const spouseAllocation = allocateSurplusForPerson(
-          balances,
-          'spouse',
-          spouseAge,
-          currentCalendarYear,
-          spouseSurplus,
-          currentYearTfsaContributedSpouse,
-          cumulativeTfsaContributed.spouse,
-          tfsaAnnualLimitLookup
-        );
-        spouseSurplusToTfsa = spouseAllocation.tfsaContribution;
-        surplusToNonReg += spouseAllocation.nonRegContribution;
-        currentYearTfsaContributedSpouse = spouseAllocation.currentYearTfsaContributed;
-        cumulativeTfsaContributed.spouse = spouseAllocation.cumulativeTfsaContributed;
+        const primaryTfsaCandidate = Math.min(surplus, primaryTfsaRoomRemaining);
+        primarySurplusToTfsa = primaryTfsaCandidate;
+        if (primaryTfsaCandidate > 0) {
+          balances.tfsa += primaryTfsaCandidate;
+          currentYearTfsaContributedPrimary += primaryTfsaCandidate;
+          cumulativeTfsaContributed.primary += primaryTfsaCandidate;
+        }
+
+        const remainingAfterPrimary = Math.max(0, surplus - primaryTfsaCandidate);
+        const spouseTfsaCandidate = Math.min(remainingAfterPrimary, spouseTfsaRoomRemaining);
+        spouseSurplusToTfsa = spouseTfsaCandidate;
+        if (spouseTfsaCandidate > 0) {
+          balances.tfsa += spouseTfsaCandidate;
+          currentYearTfsaContributedSpouse += spouseTfsaCandidate;
+          cumulativeTfsaContributed.spouse += spouseTfsaCandidate;
+        }
+
+        const remainingSurplus = Math.max(0, remainingAfterPrimary - spouseTfsaCandidate);
+        surplusToNonReg = remainingSurplus;
+        if (remainingSurplus > 0) {
+          const primaryNonRegSurplus = remainingSurplus / 2;
+          const spouseNonRegSurplus = remainingSurplus - primaryNonRegSurplus;
+          balances.non_reg_primary += primaryNonRegSurplus;
+          balances.non_reg_primary_acb += primaryNonRegSurplus;
+          balances.non_reg_spouse += spouseNonRegSurplus;
+          balances.non_reg_spouse_acb += spouseNonRegSurplus;
+        }
       } else {
         const primaryAllocation = allocateSurplusForPerson(
           balances,

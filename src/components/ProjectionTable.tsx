@@ -147,6 +147,19 @@ const ROW_HEIGHT = 40;
 const VISIBLE_ROWS = 10;
 const TABLE_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS;
 
+function formatTfsaReinvestment(row: YearlyProjection, yearIndex: number, pv: (amount: number, yearIndex: number) => number): string {
+  const primaryTfsaSurplus = row.primary_surplus_to_tfsa ?? 0;
+  const spouseTfsaSurplus = row.spouse_surplus_to_tfsa ?? 0;
+
+  if (primaryTfsaSurplus <= 0 && spouseTfsaSurplus <= 0) return '—';
+
+  if (spouseTfsaSurplus > 0) {
+    return `P ${formatCurrency(pv(primaryTfsaSurplus, yearIndex))} / S ${formatCurrency(pv(spouseTfsaSurplus, yearIndex))}`;
+  }
+
+  return formatCurrency(pv(primaryTfsaSurplus, yearIndex));
+}
+
 export default function ProjectionTable({
   projections, scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
   showTodayDollars = false, inflationRate = 2.5, autoRunTrigger = 0
@@ -241,19 +254,24 @@ export default function ProjectionTable({
       {showMainTable && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div style={{ height: TABLE_HEIGHT, overflowY: 'auto', overflowX: 'auto' }}>
-            <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 z-10">
+            <table className="w-full text-sm border-separate border-spacing-0">
+                <thead>
                   <tr className="bg-gray-800 text-white">
-                    <th className="px-3 py-2 text-left font-medium sticky left-0 bg-gray-800 z-20 whitespace-nowrap">Age</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Salary</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">CPP</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">OAS</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Inheritance</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">RRSP W/D</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">TFSA W/D</th>
-                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Non-Reg W/D</th>}
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Gross Cashflow</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                    <th
+                      className="px-3 py-2 text-left font-medium bg-gray-800 z-30 whitespace-nowrap"
+                      style={{ position: 'sticky', top: 0, left: 0 }}
+                    >
+                      Age
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Salary</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">CPP</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">OAS</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Inheritance</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">RRSP W/D</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">TFSA W/D</th>
+                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Non-Reg W/D</th>}
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Gross Cashflow</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">
                       <button
                         onClick={() => setShowTaxableInfo(true)}
                         className="flex items-center gap-1 text-white hover:text-blue-200 whitespace-nowrap"
@@ -261,23 +279,25 @@ export default function ProjectionTable({
                         Taxable Inc. <Info className="w-3 h-3" />
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">
                       <button onClick={() => setShowTaxInfo(true)}
                         className="flex items-center gap-1 text-white hover:text-blue-200 whitespace-nowrap">
                         Federal Tax <Info className="w-3 h-3" />
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Prov. Tax</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">CPP/EI/OAS</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total Tax</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">After-Tax</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Expenses</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Net Flow</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">RRSP Bal.</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">TFSA Bal.</th>
-                    {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">FHSA Bal.</th>}
-                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Non-Reg Bal.</th>}
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Net Worth</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Prov. Tax</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">CPP/EI/OAS</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Total Tax</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">After-Tax</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Expenses</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Net Flow</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">TFSA Reinvest</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Non-Reg Reinvest</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">RRSP Bal.</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">TFSA Bal.</th>
+                    {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">FHSA Bal.</th>}
+                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Non-Reg Bal.</th>}
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Net Worth</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -286,13 +306,18 @@ export default function ProjectionTable({
                     const grossCashflow = row.salary + row.cpp + row.oas + row.rrsp_withdrawal + row.non_reg_withdrawal;
                     const isRetirement = row.total_withdrawals > 0 || row.cpp > 0;
                     const yr = row.year - 1;
+                    const tfsaReinvestment = formatTfsaReinvestment(row, yr, pv);
+                    const nonRegisteredReinvestment = row.non_reg_surplus > 0 ? formatCurrency(pv(row.non_reg_surplus, yr)) : '—';
+                    const stickyAgeBgClass = isRetirement
+                      ? i % 2 === 0 ? 'bg-blue-50 text-blue-800' : 'bg-blue-50/60 text-blue-800'
+                      : i % 2 === 0 ? 'bg-white text-gray-900' : 'bg-gray-50 text-gray-900';
                     return (
                       <tr key={row.age} style={{ height: ROW_HEIGHT }}
                         className={`border-b border-gray-100 ${isRetirement
                           ? i % 2 === 0 ? 'bg-blue-50' : 'bg-blue-50/60'
                           : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                         } hover:bg-yellow-50 transition-colors`}>
-                        <td className={`px-3 py-1.5 font-semibold sticky left-0 z-10 ${isRetirement ? 'bg-blue-50 text-blue-800' : 'bg-white text-gray-900'}`}>{row.age}</td>
+                        <td className={`px-3 py-1.5 font-semibold sticky left-0 z-10 ${stickyAgeBgClass}`}>{row.age}</td>
                         <td className="px-3 py-1.5 text-right text-gray-700">{row.salary > 0 ? fmtPv(row.salary, yr) : '—'}</td>
                         <td className="px-3 py-1.5 text-right text-green-700">{row.cpp > 0 ? fmtPv(row.cpp, yr) : '—'}</td>
                         <td className="px-3 py-1.5 text-right text-green-700">{row.oas > 0 ? fmtPv(row.oas, yr) : '—'}</td>
@@ -309,6 +334,8 @@ export default function ProjectionTable({
                         <td className="px-3 py-1.5 text-right font-medium text-gray-900">{fmtPv(row.after_tax_income, yr)}</td>
                         <td className="px-3 py-1.5 text-right text-gray-600">{fmtPv(row.total_expenses, yr)}</td>
                         <td className={`px-3 py-1.5 text-right font-medium ${row.net_cash_flow >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtPv(row.net_cash_flow, yr)}</td>
+                        <td className="px-3 py-1.5 text-right text-emerald-700 font-medium whitespace-nowrap">{tfsaReinvestment}</td>
+                        <td className="px-3 py-1.5 text-right text-orange-700 font-medium whitespace-nowrap">{nonRegisteredReinvestment}</td>
                         <td className="px-3 py-1.5 text-right text-gray-600">{fmtPv(row.rrsp_balance, yr)}</td>
                         <td className="px-3 py-1.5 text-right text-gray-600">{fmtPv(row.tfsa_balance, yr)}</td>
                         {hasFhsa && <td className="px-3 py-1.5 text-right text-gray-600">{fmtPv(row.fhsa_balance, yr)}</td>}
@@ -403,20 +430,25 @@ export default function ProjectionTable({
       {showGrowthTable && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div style={{ height: TABLE_HEIGHT, overflowY: 'auto', overflowX: 'auto' }}>
-            <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 z-10">
+            <table className="w-full text-sm border-separate border-spacing-0">
+                <thead>
                   <tr className="bg-gray-800 text-white">
-                    <th className="px-3 py-2 text-left font-medium sticky left-0 bg-gray-800 z-20 whitespace-nowrap">Age</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">RRSP Market Return</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">TFSA Market Return</th>
-                    {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">FHSA Market Return</th>}
-                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Non-Reg Market Return</th>}
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">RRSP Growth</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">TFSA Growth</th>
-                    {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">FHSA Growth</th>}
-                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Non-Reg Growth</th>}
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total Growth</th>
-                    <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Funds Added</th>
+                    <th
+                      className="px-3 py-2 text-left font-medium bg-gray-800 z-30 whitespace-nowrap"
+                      style={{ position: 'sticky', top: 0, left: 0 }}
+                    >
+                      Age
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">RRSP Market Return</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">TFSA Market Return</th>
+                    {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">FHSA Market Return</th>}
+                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Non-Reg Market Return</th>}
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">RRSP Growth</th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">TFSA Growth</th>
+                    {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">FHSA Growth</th>}
+                    {hasNonReg && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Non-Reg Growth</th>}
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Total Growth</th>
+                    <th className="px-3 py-2 text-left font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Funds Added</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -451,13 +483,16 @@ export default function ProjectionTable({
                     const rowBg = isRetirement
                       ? i % 2 === 0 ? 'bg-blue-50' : 'bg-blue-50/60'
                       : i % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                    const stickyAgeBgClass = isRetirement
+                      ? i % 2 === 0 ? 'bg-blue-50 text-blue-800' : 'bg-blue-50/60 text-blue-800'
+                      : i % 2 === 0 ? 'bg-white text-gray-900' : 'bg-gray-50 text-gray-900';
 
                     const growthColor = (v: number) => v > 0 ? 'text-green-700' : v < 0 ? 'text-red-600' : 'text-gray-400';
 
                     return (
                       <tr key={row.age} style={{ height: ROW_HEIGHT }}
                         className={`border-b border-gray-100 ${rowBg} hover:bg-yellow-50 transition-colors`}>
-                        <td className={`px-3 py-1.5 font-semibold sticky left-0 z-10 ${isRetirement ? 'bg-blue-50 text-blue-800' : 'bg-white text-gray-900'}`}>{row.age}</td>
+                        <td className={`px-3 py-1.5 font-semibold sticky left-0 z-10 ${stickyAgeBgClass}`}>{row.age}</td>
                         <td className={`px-3 py-1.5 text-right font-medium ${growthColor(row.rrsp_market_return ?? 0)}`}>{(row.rrsp_market_return ?? 0) !== 0 ? fmtPv(row.rrsp_market_return ?? 0, yr) : '—'}</td>
                         <td className={`px-3 py-1.5 text-right font-medium ${growthColor(row.tfsa_market_return ?? 0)}`}>{(row.tfsa_market_return ?? 0) !== 0 ? fmtPv(row.tfsa_market_return ?? 0, yr) : '—'}</td>
                         {hasFhsa && <td className={`px-3 py-1.5 text-right font-medium ${growthColor(row.fhsa_market_return ?? 0)}`}>{(row.fhsa_market_return ?? 0) !== 0 ? fmtPv(row.fhsa_market_return ?? 0, yr) : '—'}</td>}
