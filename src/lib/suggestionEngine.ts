@@ -257,7 +257,7 @@ export function runComparativeAnalysis(
 
   const baselineMetrics = calculateComparisonMetrics(baselineProjections);
 
-  const analyzedSuggestions = suggestions.map(suggestion => {
+  const analyzedSuggestions: Suggestion[] = suggestions.map(suggestion => {
     const scenarioOverrides: Partial<Scenario> = {};
     if (suggestion.overrides.retirementAge != null) {
       scenarioOverrides.retirement_age = suggestion.overrides.retirementAge;
@@ -289,7 +289,7 @@ export function runComparativeAnalysis(
     const comparativeMetrics = calculateComparisonMetrics(comparativeProjection);
     const projectedValueAdd = comparativeMetrics.finalNetWorth - baselineMetrics.finalNetWorth;
     const projectedTaxSavings = baselineMetrics.lifetimeTaxes - comparativeMetrics.lifetimeTaxes;
-    const kind = projectedValueAdd >= 0 && projectedTaxSavings >= 0 ? 'improvement' : 'tradeoff';
+    const kind: Suggestion['kind'] = projectedValueAdd >= 0 && projectedTaxSavings >= 0 ? 'improvement' : 'tradeoff';
 
     return {
       ...suggestion,

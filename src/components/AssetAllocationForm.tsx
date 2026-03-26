@@ -155,17 +155,6 @@ export default function AssetAllocationForm({ allocations, onChange, savingsAcco
     );
   }
 
-  const updateAllocation = (accountType: string, person: Person | undefined, field: keyof AssetAllocation, value: number) => {
-    const matches = (a: AssetAllocation) => a.account_type === accountType && (a.person ?? undefined) === person;
-    const existing = allocations.find(matches);
-    if (existing) {
-      onChange(allocations.map(a => matches(a) ? { ...a, [field]: value } : a));
-    } else {
-      const base = getAllocation(allocations, accountType, person);
-      onChange([...allocations, { ...base, [field]: value }]);
-    }
-  };
-
   const updateGeoWeights = (accountType: string, person: Person | undefined, weights: { cad: number; us: number; intl: number }) => {
     const matches = (a: AssetAllocation) => a.account_type === accountType && (a.person ?? undefined) === person;
     const existing = allocations.find(matches);

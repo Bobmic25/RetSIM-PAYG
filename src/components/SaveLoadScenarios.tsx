@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Save, FolderOpen, Trash2, Download } from 'lucide-react';
 import { Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
-import { supabase } from '../lib/supabase';
 
 interface SavedScenario {
   id: string;
@@ -224,7 +223,7 @@ export default function SaveLoadScenarios({
                   <div className="flex gap-3 mt-1 text-xs text-gray-500">
                     <span>Age {saved.scenario.current_age} → {saved.scenario.retirement_age}{saved.scenario.profile_type === 'couple' ? ` / spouse ${saved.scenario.spouse_retirement_age ?? saved.scenario.retirement_age}` : ''}</span>
                     <span>{saved.scenario.province}</span>
-                    <span>{saved.scenario.return_type === 'monte_carlo' ? 'Monte Carlo' : 'Linear'}</span>
+                    <span>{saved.scenario.return_type.replace(/_/g, ' ')}</span>
                   </div>
                 </div>
                 <div className="flex gap-2">

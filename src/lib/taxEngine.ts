@@ -404,16 +404,6 @@ export function getTaxData(
   };
 }
 
-function calcBracketTax(income: number, brackets: TaxBracket[]): number {
-  let tax = 0;
-  for (const bracket of brackets) {
-    if (income <= bracket.min) break;
-    const taxable = Math.min(income, bracket.max) - bracket.min;
-    tax += taxable * bracket.rate;
-  }
-  return tax;
-}
-
 function calcBracketTaxAudit(income: number, brackets: TaxBracket[]): { total: number; auditBrackets: TaxAuditBracket[] } {
   let total = 0;
   const auditBrackets: TaxAuditBracket[] = [];

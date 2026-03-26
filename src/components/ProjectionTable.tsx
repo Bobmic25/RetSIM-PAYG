@@ -2,12 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp, Info, X } from 'lucide-react';
 import { YearlyProjection, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
-import { runCppOasOptimization, CppOasOptimizationRow, CppOasOptimizationResult } from '../lib/projectionEngine';
+import { runCppOasOptimization, CppOasOptimizationResult } from '../lib/projectionEngine';
 import { presentValue, GIS_MAX_SINGLE_ANNUAL_2026, GIS_MAX_COUPLE_ANNUAL_2026, GIS_CLAWBACK_RATE } from '../lib/benefitsEngine';
 import {
   OAS_CLAWBACK_THRESHOLD_2026,
   OAS_CLAWBACK_RATE,
-  OAS_MAX_CLAWBACK_THRESHOLD_2026,
   FEDERAL_BRACKETS_2026
 } from '../lib/taxEngine';
 

@@ -44,7 +44,10 @@ export default function TaxChart({ data, showToday, inflationRate = 2.5 }: TaxCh
             tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
           />
           <Tooltip
-            formatter={(value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+            formatter={(value: number | string | readonly (number | string)[] | undefined) => {
+              const numericValue = Array.isArray(value) ? Number(value[0]) : Number(value ?? 0);
+              return `$${numericValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+            }}
             labelFormatter={(label) => `Age ${label}`}
           />
           <Legend />

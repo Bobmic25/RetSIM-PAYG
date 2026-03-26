@@ -10,11 +10,10 @@ interface IncomeFormProps {
   scenario: Scenario;
 }
 
-function IncomeCard({ source, index, onUpdate, onRemove, currentAge }: {
+function IncomeCard({ source, index, onUpdate, onRemove }: {
   source: IncomeSource; index: number;
   onUpdate: (i: number, u: Partial<IncomeSource>) => void;
   onRemove: (i: number) => void;
-  currentAge: number;
 }) {
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/[$,]/g, '');
@@ -74,13 +73,12 @@ function IncomeCard({ source, index, onUpdate, onRemove, currentAge }: {
   );
 }
 
-function PersonSection({ label, accentClass, sources, onAdd, onUpdate, onRemove, currentAge }: {
+function PersonSection({ label, accentClass, sources, onAdd, onUpdate, onRemove }: {
   label: string; accentClass: string;
   sources: IncomeSource[];
   onAdd: () => void;
   onUpdate: (i: number, u: Partial<IncomeSource>) => void;
   onRemove: (i: number) => void;
-  currentAge: number;
 }) {
   return (
     <div className={`rounded-lg border p-4 ${accentClass}`}>
@@ -95,7 +93,7 @@ function PersonSection({ label, accentClass, sources, onAdd, onUpdate, onRemove,
         ? <p className="text-gray-500 text-sm text-center py-4">No income sources. Click "Add Income" to begin.</p>
         : sources.map((s, i) => (
           <div key={i} className="mb-3">
-            <IncomeCard source={s} index={i} onUpdate={onUpdate} onRemove={onRemove} currentAge={currentAge} />
+            <IncomeCard source={s} index={i} onUpdate={onUpdate} onRemove={onRemove} />
           </div>
         ))
       }
@@ -154,8 +152,7 @@ export default function IncomeForm({ incomeSources, onChange, scenario }: Income
           : incomeSources.map((s, i) => (
             <IncomeCard key={i} source={s} index={i}
               onUpdate={(_, u) => { const upd = [...incomeSources]; upd[i] = { ...upd[i], ...u }; onChange(upd); }}
-              onRemove={idx => onChange(incomeSources.filter((_, ii) => ii !== idx))}
-              currentAge={scenario.current_age} />
+              onRemove={idx => onChange(incomeSources.filter((_, ii) => ii !== idx))} />
           ))
         }
       </div>
@@ -168,13 +165,11 @@ export default function IncomeForm({ incomeSources, onChange, scenario }: Income
       <PersonSection label="Primary Person" accentClass="bg-blue-50 border-blue-200"
         sources={primarySources} onAdd={addPrimary}
         onUpdate={(i, u) => updateByPerson('primary', i, u)}
-        onRemove={i => removeByPerson('primary', i)}
-        currentAge={scenario.current_age} />
+        onRemove={i => removeByPerson('primary', i)} />
       <PersonSection label="Spouse" accentClass="bg-cyan-50 border-cyan-200"
         sources={spouseSources} onAdd={addSpouse}
         onUpdate={(i, u) => updateByPerson('spouse', i, u)}
-        onRemove={i => removeByPerson('spouse', i)}
-        currentAge={scenario.spouse_age || scenario.current_age} />
+        onRemove={i => removeByPerson('spouse', i)} />
     </div>
   );
 }

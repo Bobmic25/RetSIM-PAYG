@@ -21,14 +21,6 @@ function studentTSample(df: number): number {
   return z / Math.sqrt(chiSq / df);
 }
 
-function choleskyCorrelatedSamples(correlation: number): [number, number] {
-  const z1 = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
-  const z2 = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
-  const x1 = z1;
-  const x2 = correlation * z1 + Math.sqrt(1 - correlation * correlation) * z2;
-  return [x1, x2];
-}
-
 export function generateNormalReturn(mean: number, stdDev: number): number {
   const z = studentTSample(STUDENT_T_DEGREES_OF_FREEDOM);
   return mean + stdDev * z;

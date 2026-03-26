@@ -214,7 +214,9 @@ export default function NetWorthChart({
 
       {monteCarloResult && (
         <p className="text-xs text-gray-400 mt-1">
-          Showing median (50th percentile) projection. Success rate: {monteCarloResult.success_rate.toFixed(1)}%
+          {monteCarloResult.mode === 'historical_backtesting'
+            ? `Showing median historical window. Historical survival rate: ${monteCarloResult.success_rate.toFixed(1)}%`
+            : `Showing median (50th percentile) projection. Success rate: ${monteCarloResult.success_rate.toFixed(1)}%`}
         </p>
       )}
     </div>

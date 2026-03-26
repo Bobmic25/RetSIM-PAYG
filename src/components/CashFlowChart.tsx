@@ -1,5 +1,4 @@
 import { ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Text, Line } from 'recharts';
-import { TooltipProps } from 'recharts';
 import { YearlyProjection } from '../types/retirement';
 import { presentValue } from '../lib/benefitsEngine';
 
@@ -72,7 +71,17 @@ const COLORS: Record<string, string> = {
   Expenses: '#dc2626',
 };
 
-function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
+interface CashFlowTooltipEntry {
+  name?: string;
+  value?: number;
+  payload?: {
+    grossCashIn: number;
+    afterTaxTotal: number;
+    Expenses: number;
+  };
+}
+
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: CashFlowTooltipEntry[]; label?: number | string }) {
   if (!active || !payload || !payload.length) return null;
 
   const chartRow = payload[0]?.payload as {
@@ -83,7 +92,7 @@ function CustomTooltip({ active, payload, label }: TooltipProps<number, string>)
   const grossCashIn = chartRow?.grossCashIn ?? 0;
   const afterTaxTotal = chartRow?.afterTaxTotal ?? 0;
   const expenses = chartRow?.Expenses ?? 0;
-  const payloadItems = payload.filter(entry => !['After-Tax Income', 'Expenses'].includes(entry.name ?? ''));
+  const payloadItems = payload.filter((entry: CashFlowTooltipEntry) => !['After-Tax Income', 'Expenses'].includes(entry.name ?? ''));
 
   return (
     <div style={{
@@ -109,7 +118,7 @@ function CustomTooltip({ active, payload, label }: TooltipProps<number, string>)
           <span>${Math.round(expenses).toLocaleString()}</span>
         </div>
       </div>
-      {payloadItems.map((entry) => (
+      {payloadItems.map((entry: CashFlowTooltipEntry) => (
         <div key={entry.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12, marginBottom: 2 }}>
           <span style={{ color: COLORS[entry.name ?? ''] ?? '#111827' }}>{entry.name}</span>
           <span style={{ color: COLORS[entry.name ?? ''] ?? '#111827' }}>

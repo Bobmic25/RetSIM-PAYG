@@ -13,8 +13,7 @@ import AISuggestionsPanel from './AISuggestionsPanel';
 import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation, SavedComparisonResult } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
-import { computeTaxAudit, calcTieredCapitalGainInclusion, OAS_CLAWBACK_THRESHOLD_2026, OAS_CLAWBACK_RATE, FEDERAL_BRACKETS_2026 } from '../lib/taxEngine';
-import { GIS_MAX_SINGLE_ANNUAL_2026, GIS_CLAWBACK_RATE } from '../lib/benefitsEngine';
+import { computeTaxAudit, calcTieredCapitalGainInclusion } from '../lib/taxEngine';
 import { type LiveTaxData } from '../lib/taxDataService';
 import { generateSuggestions, calculateComparisonMetrics, type Suggestion } from '../lib/suggestionEngine';
 import { COMPARISON_STRATEGIES as WITHDRAWAL_STRATEGIES, getComparisonData } from '../lib/projectionEngine';
@@ -89,6 +88,15 @@ const WITHDRAWAL_STRATEGY_DETAILS: Record<Scenario['withdrawal_strategy'], { bad
     badge: 'Tax-optimized',
     description: 'Uses a forward RRIF look-ahead to spread registered withdrawals across years and reduce lifetime tax and OAS clawback pressure.',
   },
+};
+
+const RETURN_MODE_LABELS: Record<Scenario['return_type'], string> = {
+  linear: 'Manual Input',
+  monte_carlo: 'Monte Carlo',
+  historical_backtesting: 'Historical Backtesting',
+  goal_seeking: 'Goal-Seeking',
+  dynamic_guardrails: 'Dynamic Guardrails',
+  adaptive_withdrawal: 'Adaptive Withdrawal',
 };
 
 interface ResultsDashboardProps {
@@ -202,7 +210,6 @@ export default function ResultsDashboard({
   projections,
   monteCarloResult,
   optimizedProjections,
-  optimizedMonteCarloResult,
   activeSuggestion,
   onApplySuggestion,
   onResetOptimization,
@@ -272,6 +279,13 @@ export default function ResultsDashboard({
     );
   }
 
+  const forecastMode = monteCarloResult?.mode ?? scenario.return_type;
+  const hasDistributionBands = Boolean(monteCarloResult && (forecastMode === 'monte_carlo' || forecastMode === 'historical_backtesting'));
+  const isGoalSeekingMode = forecastMode === 'goal_seeking';
+  const isGuardrailMode = forecastMode === 'dynamic_guardrails';
+  const isAdaptiveMode = forecastMode === 'adaptive_withdrawal';
+  const summaryMessages = monteCarloResult?.event_messages ?? [];
+
   const lastSalaryAge = projections.reduce((maxAge, p) => p.salary > 0 ? Math.max(maxAge, p.age) : maxAge, -1);
   const retirementStartAge = lastSalaryAge >= 0 ? lastSalaryAge + 1 : scenario.retirement_age;
 
@@ -280,8 +294,6 @@ export default function ResultsDashboard({
     : projections;
 
   const lastYear = projections[projections.length - 1];
-  const firstRetirementYear = projections.find(p => p.total_withdrawals > 0 || p.cpp > 0);
-  const totalTax = projections.reduce((s, p) => s + p.total_tax, 0);
   const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
 
   const retirementProjections = projections.filter(p => p.age >= retirementStartAge);
@@ -299,10 +311,6 @@ export default function ResultsDashboard({
     showTodayDollars ? presentValue(amount, yearIndex, inflationRate) : amount;
 
   const lastNetWorth = pv(lastYear.total_balance, lastYear.year - 1);
-  const totalTaxPv = showTodayDollars
-    ? projections.reduce((s, p) => s + pv(p.total_tax, p.year - 1), 0)
-    : totalTax;
-
   // Retirement-period only tax — aligns with the CPP/OAS optimization table metric.
   const totalRetirementTaxPv = retirementProjections.reduce(
     (s, p) => s + pv(p.total_tax, p.year - 1), 0
@@ -644,12 +652,12 @@ export default function ResultsDashboard({
             <Download className="w-4 h-4" />
             Export CSV
           </button>
-          {scenario.return_type === 'monte_carlo' && onRerunMonteCarlo && (
+          {(scenario.return_type === 'monte_carlo' || scenario.return_type === 'historical_backtesting') && onRerunMonteCarlo && (
             <button
               onClick={onRerunMonteCarlo}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
             >
-              Re-Run Simulation
+              Re-Run Analysis
             </button>
           )}
         </div>
@@ -706,17 +714,39 @@ export default function ResultsDashboard({
           onInfoClick={() => setShowTaxModal(true)}
         />
         <StatCard
-          icon={monteCarloResult ? Target : TrendingUp}
-          label={monteCarloResult ? 'Success Rate' : 'Total Ret. Withdrawals'}
-          value={monteCarloResult
-            ? `${monteCarloResult.success_rate.toFixed(1)}%`
-            : formatCurrency(totalRetirementWithdrawals)}
-          sub={monteCarloResult ? `${monteCarloResult.iterations.toLocaleString()} iterations` : `All post-retirement${showTodayDollars ? " (today's $)" : ''}`}
+          icon={hasDistributionBands ? Target : isGoalSeekingMode ? Target : isAdaptiveMode ? ShieldCheck : isGuardrailMode ? ShieldCheck : TrendingUp}
+          label={hasDistributionBands
+            ? (forecastMode === 'historical_backtesting' ? 'Historical Survival' : 'Success Rate')
+            : isGoalSeekingMode
+              ? 'Optimized Spending'
+              : isAdaptiveMode
+                ? 'Stability Score'
+                : isGuardrailMode
+                  ? 'Guardrail Events'
+                  : 'Total Ret. Withdrawals'}
+          value={hasDistributionBands
+            ? `${monteCarloResult?.success_rate.toFixed(1)}%`
+            : isGoalSeekingMode
+              ? formatCurrency(monteCarloResult?.optimized_spending ?? 0)
+              : isAdaptiveMode
+                ? `${(monteCarloResult?.stability_score ?? 100).toFixed(1)}`
+                : isGuardrailMode
+                  ? `${summaryMessages.length}`
+                  : formatCurrency(totalRetirementWithdrawals)}
+          sub={hasDistributionBands
+            ? `${monteCarloResult?.iterations.toLocaleString()} scenarios`
+            : isGoalSeekingMode
+              ? `Legacy goal ${formatCurrency(monteCarloResult?.legacy_goal ?? 0)}`
+              : isAdaptiveMode
+                ? 'Higher is steadier real spending'
+                : isGuardrailMode
+                  ? 'Logged spending-rule activations'
+                  : `All post-retirement${showTodayDollars ? " (today's $)" : ''}`}
           color="bg-blue-500"
         />
       </div>
 
-      {mcIsStale && monteCarloResult && (
+      {mcIsStale && monteCarloResult?.mode === 'monte_carlo' && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
@@ -735,9 +765,11 @@ export default function ResultsDashboard({
         </div>
       )}
 
-      {monteCarloResult && (
+      {hasDistributionBands && monteCarloResult && (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h3 className="font-semibold text-gray-900 mb-3">Monte Carlo Percentiles (Final Net Worth)</h3>
+          <h3 className="font-semibold text-gray-900 mb-3">
+            {forecastMode === 'historical_backtesting' ? 'Historical Outcome Bands (Final Net Worth)' : 'Monte Carlo Percentiles (Final Net Worth)'}
+          </h3>
           <div className="grid grid-cols-3 gap-4 text-center">
             {[
               { label: '10th Percentile (Worst)', data: monteCarloResult.percentile_10, color: 'red' },
@@ -753,6 +785,52 @@ export default function ResultsDashboard({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {forecastMode === 'historical_backtesting' && monteCarloResult?.failure_cases && monteCarloResult.failure_cases.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="font-semibold text-gray-900 mb-3">Historical Failure Windows</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {monteCarloResult.failure_cases.slice(0, 8).map(failure => (
+              <div key={`${failure.start_year}-${failure.end_year}`} className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                <p className="font-medium text-red-900">{failure.label}</p>
+                <p className="text-sm text-red-800 mt-1">{failure.start_year} to {failure.end_year}</p>
+                <p className="text-sm text-red-800 mt-1">Final net worth: {formatCurrency(failure.final_net_worth)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isGoalSeekingMode && monteCarloResult && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="font-semibold text-gray-900 mb-3">Goal-Seeking Output</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <p className="text-sm font-medium text-emerald-900">Solved Annual Spending</p>
+              <p className="mt-1 text-2xl font-bold text-emerald-700">{formatCurrency(monteCarloResult.optimized_spending ?? 0)}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-sm font-medium text-slate-900">Legacy Goal</p>
+              <p className="mt-1 text-2xl font-bold text-slate-700">{formatCurrency(monteCarloResult.legacy_goal ?? 0)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(isGuardrailMode || isAdaptiveMode) && summaryMessages.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="font-semibold text-gray-900 mb-3">
+            {isGuardrailMode ? 'Guardrail Event Log' : 'Adaptive Withdrawal Event Log'}
+          </h3>
+          <div className="space-y-2">
+            {summaryMessages.slice(0, 10).map((message, index) => (
+              <div key={`${message}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                {message}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -790,7 +868,7 @@ export default function ResultsDashboard({
           <div className="flex items-center gap-4 px-4 py-2.5 border-l border-gray-200 bg-gray-50 shrink-0">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-gray-700">Return Type:</span>
-              <span className="text-xs font-semibold text-gray-900">{scenario.return_type === 'monte_carlo' ? 'Monte Carlo' : 'Linear'}</span>
+              <span className="text-xs font-semibold text-gray-900">{RETURN_MODE_LABELS[scenario.return_type]}</span>
             </div>
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-gray-700">Withdrawal Strategy:</label>
@@ -854,7 +932,7 @@ export default function ResultsDashboard({
               <h3 className="font-semibold text-gray-900 mb-3">Net Worth Over Time</h3>
               <NetWorthChart
                 projections={viewProjections}
-                monteCarloResult={retirementView ? undefined : monteCarloResult}
+                monteCarloResult={retirementView || !hasDistributionBands ? undefined : monteCarloResult}
                 optimizedProjections={optimizedProjections}
                 showInflationAdjusted={showTodayDollars}
                 inflationRate={inflationRate}

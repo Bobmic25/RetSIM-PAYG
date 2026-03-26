@@ -1,5 +1,11 @@
 export type ProfileType = 'individual' | 'couple';
-export type ReturnType = 'linear' | 'monte_carlo';
+export type ReturnType =
+  | 'linear'
+  | 'monte_carlo'
+  | 'historical_backtesting'
+  | 'goal_seeking'
+  | 'dynamic_guardrails'
+  | 'adaptive_withdrawal';
 export type WithdrawalStrategy = 'maximize_spending' | 'maximize_estate' | 'tax_efficient' | 'net_expenses_only' | 'rrsp_meltdown' | 'minimize_lifetime_tax';
 export type AccountType = 'rrsp' | 'tfsa' | 'fhsa' | 'non_reg';
 export type IncomeSourceType = 'salary' | 'pension' | 'rental' | 'other';
@@ -225,15 +231,46 @@ export interface YearlyProjection {
   non_reg_market_return?: number;
   non_reg_market_return_primary?: number;
   non_reg_market_return_spouse?: number;
+  capital_utilization_ratio?: number;
+  spending_adjustment_factor?: number;
+  withdrawal_rate?: number;
+  portfolio_return?: number;
+  real_spending_power?: number;
+  messages?: string[];
 }
 
-export interface MonteCarloResult {
+export interface ForecastFailureCase {
+  start_year: number;
+  end_year: number;
+  label: string;
+  final_net_worth: number;
+}
+
+export interface HistoricalWindowSummary {
+  start_year: number;
+  end_year: number;
+  label: string;
+  success: boolean;
+  final_net_worth: number;
+}
+
+export interface ForecastAnalysisResult {
+  mode: ReturnType;
   percentile_10: YearlyProjection[];
   percentile_50: YearlyProjection[];
   percentile_90: YearlyProjection[];
   success_rate: number;
   iterations: number;
+  summary_label?: string;
+  optimized_spending?: number;
+  legacy_goal?: number;
+  stability_score?: number;
+  failure_cases?: ForecastFailureCase[];
+  window_summaries?: HistoricalWindowSummary[];
+  event_messages?: string[];
 }
+
+export type MonteCarloResult = ForecastAnalysisResult;
 
 export interface SavedComparisonResult {
   name: string;

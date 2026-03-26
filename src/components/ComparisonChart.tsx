@@ -6,7 +6,6 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  type TooltipProps,
 } from 'recharts';
 import { ComparisonDataPoint, ComparisonSeriesDefinition } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
@@ -22,17 +21,28 @@ interface ComparisonChartProps {
   yAxisLabel: string;
 }
 
+interface ComparisonTooltipEntry {
+  dataKey?: string | number;
+  value?: number;
+  color?: string;
+}
+
 function ComparisonTooltip({
   active,
   label,
   payload,
   seriesMap,
-}: TooltipProps<number, string> & { seriesMap: Map<string, ComparisonSeriesDefinition> }) {
+}: {
+  active?: boolean;
+  label?: number | string;
+  payload?: ComparisonTooltipEntry[];
+  seriesMap: Map<string, ComparisonSeriesDefinition>;
+}) {
   if (!active || !payload || payload.length === 0) return null;
 
   const rows = payload
-    .filter(entry => entry.dataKey && typeof entry.value === 'number')
-    .map(entry => {
+    .filter((entry: ComparisonTooltipEntry) => entry.dataKey && typeof entry.value === 'number')
+    .map((entry: ComparisonTooltipEntry) => {
       const dataKey = String(entry.dataKey);
       const definition = seriesMap.get(dataKey);
       return {
@@ -42,13 +52,13 @@ function ComparisonTooltip({
         value: Number(entry.value ?? 0),
       };
     })
-    .sort((left, right) => right.value - left.value);
+    .sort((left: { value: number }, right: { value: number }) => right.value - left.value);
 
   return (
     <div className="min-w-[280px] rounded-xl border border-gray-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Age {label}</p>
       <div className="mt-3 space-y-2">
-        {rows.map(row => (
+        {rows.map((row: { key: string; label: string; color: string; value: number }) => (
           <div key={row.key} className="flex items-center justify-between gap-4 text-sm">
             <div className="flex min-w-0 items-center gap-2">
               <span className="h-0.5 w-5 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />

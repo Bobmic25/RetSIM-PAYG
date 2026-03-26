@@ -8,7 +8,7 @@ import {
   OneTimeEvent,
   YearlyProjection
 } from '../types/retirement';
-import { runCppOasOptimization, CppOasOptimizationRow } from '../lib/projectionEngine';
+import { runCppOasOptimization, CppOasOptimizationResult } from '../lib/projectionEngine';
 import { formatCurrency } from '../lib/formatters';
 import { RefreshCw, TrendingDown, Calculator, CheckCircle, AlertCircle, Loader2, HelpCircle } from 'lucide-react';
 import { type LiveTaxData, triggerTaxDataRefresh, fetchLiveTaxData } from '../lib/taxDataService';
@@ -47,14 +47,13 @@ export default function TaxVerificationPanel({
 }: TaxVerificationPanelProps) {
   const ages = projections.map(p => p.age);
   const [selectedAge, setSelectedAge] = useState(ages[Math.floor(ages.length / 2)] ?? ages[0]);
-  const [optimizationRows, setOptimizationRows] = useState<CppOasOptimizationRow[] | null>(null);
+  const [optimizationResult, setOptimizationResult] = useState<CppOasOptimizationResult | null>(null);
   const [loadingOpt, setLoadingOpt] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [showTaxExplainModal, setShowTaxExplainModal] = useState(false);
 
   const selectedYear = projections.find(p => p.age === selectedAge);
-  const yearIndex = selectedYear ? selectedYear.year - 1 : 0;
 
   const employmentAndPensionIncome = selectedYear
     ? selectedYear.salary + selectedYear.db_pension
@@ -84,14 +83,14 @@ export default function TaxVerificationPanel({
   const handleRunOptimization = () => {
     setLoadingOpt(true);
     setTimeout(() => {
-      const rows = runCppOasOptimization(scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents);
-      setOptimizationRows(rows);
+      const result = runCppOasOptimization(scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents);
+      setOptimizationResult(result);
       setLoadingOpt(false);
     }, 0);
   };
 
-  const highlightRows = optimizationRows
-    ? optimizationRows.filter(r => CPP_OAS_HIGHLIGHT_COMBOS.some(c => c.cpp === r.cpp_start_age && c.oas === r.oas_start_age))
+  const highlightRows = optimizationResult?.phase1Rows
+    ? optimizationResult.phase1Rows.filter(r => CPP_OAS_HIGHLIGHT_COMBOS.some(c => c.cpp === r.cpp_start_age && c.oas === r.oas_start_age))
     : [];
 
   const bestNetWorth = highlightRows.length > 0 ? Math.max(...highlightRows.map(r => r.final_net_worth)) : 0;
@@ -242,11 +241,11 @@ export default function TaxVerificationPanel({
                       { label: 'Provincial Tax (projected)', value: selectedYear.provincial_tax },
                       { label: 'CPP/EI/OAS (projected)', value: selectedYear.cpp_ei_tax },
                     ].map((row, i) => (
-                      <div key={i} className={`flex justify-between py-1 ${row.bold ? 'font-semibold' : ''}`}>
-                        <span className={`text-xs ${row.indent ? 'pl-4 text-gray-500' : row.bold ? 'text-gray-800' : 'text-gray-600'}`}>
+                      <div key={i} className="flex justify-between py-1">
+                        <span className="text-xs text-gray-600">
                           {row.label}
                         </span>
-                        <span className={`text-xs ${(row.value ?? 0) < 0 ? 'text-green-700' : row.bold ? 'text-gray-900' : 'text-gray-700'}`}>
+                        <span className={`text-xs ${(row.value ?? 0) < 0 ? 'text-green-700' : 'text-gray-700'}`}>
                           {(row.value ?? 0) < 0 ? `−${formatCurrency(-(row.value ?? 0))}` : formatCurrency(row.value ?? 0)}
                         </span>
                       </div>
@@ -283,12 +282,12 @@ export default function TaxVerificationPanel({
             className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:opacity-60 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loadingOpt ? 'animate-spin' : ''}`} />
-            {loadingOpt ? 'Running…' : optimizationRows ? 'Re-run' : 'Run Analysis'}
+            {loadingOpt ? 'Running…' : optimizationResult ? 'Re-run' : 'Run Analysis'}
           </button>
         </div>
 
         <div className="p-5">
-          {!optimizationRows ? (
+          {!optimizationResult ? (
             <div className="text-center py-8 text-gray-400">
               <TrendingDown className="w-8 h-8 mx-auto mb-2 opacity-40" />
               <p className="text-sm">Click "Run Analysis" to compare CPP/OAS start-age strategies</p>

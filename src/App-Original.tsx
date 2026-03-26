@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import Header from './components/Header';

@@ -1,4 +1,4 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
 interface LongevityPlannerProps {
   currentAge: number;
@@ -43,6 +43,8 @@ const calculateSurvivalProbability = (age: number, gender: 'male' | 'female' = '
 };
 
 export default function LongevityPlanner({ currentAge, retirementAge, planDuration, onChange }: LongevityPlannerProps) {
+  void currentAge;
+  void onChange;
   const chartData = [];
   for (let age = retirementAge; age <= retirementAge + planDuration; age++) {
     chartData.push({
@@ -69,7 +71,10 @@ export default function LongevityPlanner({ currentAge, retirementAge, planDurati
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="age" label={{ value: 'Age', position: 'insideBottom', offset: -5 }} />
             <YAxis label={{ value: 'Survival Probability (%)', angle: -90, position: 'insideLeft' }} />
-            <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
+            <Tooltip formatter={(value: number | string | readonly (number | string)[] | undefined) => {
+              const numericValue = Array.isArray(value) ? Number(value[0]) : Number(value);
+              return `${numericValue.toFixed(1)}%`;
+            }} />
             <Legend />
             <Area type="monotone" dataKey="female" stackId="1" stroke="#ec4899" fill="#fce7f3" name="Female" />
             <Area type="monotone" dataKey="male" stackId="2" stroke="#3b82f6" fill="#dbeafe" name="Male" />

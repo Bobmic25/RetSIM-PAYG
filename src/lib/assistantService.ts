@@ -168,7 +168,7 @@ export function buildAssistantContext(params: {
     inflationRate: scenario.inflation_rate,
     returnType: scenario.return_type,
     withdrawalStrategy: scenario.withdrawal_strategy,
-    hasMonteCarlo: scenario.return_type === 'monte_carlo' || Boolean(monteCarloResult),
+    hasMonteCarlo: scenario.return_type === 'monte_carlo' || monteCarloResult?.mode === 'monte_carlo',
     mcIsStale,
     monteCarloSuccessRate: monteCarloResult?.success_rate,
     monteCarloIterations: monteCarloResult?.iterations,

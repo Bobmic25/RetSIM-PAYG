@@ -9,6 +9,8 @@
   OneTimeEvent,
   YearlyProjection,
   MonteCarloResult,
+  ForecastAnalysisResult,
+  HistoricalWindowSummary,
   ComparisonDataPoint,
   ComparisonDataset,
   ComparisonSeriesDefinition,
@@ -30,6 +32,7 @@ import {
   runMonteCarloMemoryEfficient
 } from './monteCarloEngine';
 import { DEFAULT_MANAGEMENT_FEE_PCT } from './constants';
+import { HISTORICAL_MARKET_DATA } from './data/historicalMarketData';
 
 interface AccountBalances {
   rrsp: number;
@@ -101,6 +104,24 @@ function getExpensesForAge(age: number, expenseLadder: ExpenseLadder[]): number 
   return ladder.living_expenses + ladder.travel_expenses + ladder.other_expenses;
 }
 
+function getExpenseBreakdownForAge(
+  age: number,
+  expenseLadder: ExpenseLadder[],
+  yearFromStart: number,
+  inflationRate: number
+): { living: number; travel: number; other: number } {
+  const ladder = expenseLadder.find(entry => age >= entry.start_age && age <= entry.end_age);
+  if (!ladder) {
+    return { living: 0, travel: 0, other: 0 };
+  }
+
+  return {
+    living: adjustForInflation(ladder.living_expenses, yearFromStart, inflationRate),
+    travel: adjustForInflation(ladder.travel_expenses, yearFromStart, inflationRate),
+    other: adjustForInflation(ladder.other_expenses, yearFromStart, inflationRate),
+  };
+}
+
 function getHealthcareExpensesForAge(
   age: number,
   healthcareSteps: HealthcareStep[],
@@ -110,6 +131,96 @@ function getHealthcareExpensesForAge(
   return healthcareSteps
     .filter(step => !step.is_insured && age >= step.from_age && age <= step.to_age)
     .reduce((sum, step) => sum + adjustForInflation(step.annual_cost, yearFromStart, healthcareInflationRate), 0);
+}
+
+function usesDeterministicReturnInputs(returnType: Scenario['return_type']): boolean {
+  return returnType !== 'monte_carlo' && returnType !== 'historical_backtesting';
+}
+
+function calculatePortfolioBalance(balances: AccountBalances, remainingMortgageBalance: number): number {
+  return balances.rrsp + balances.rrsp_spouse + balances.tfsa + balances.fhsa + balances.non_reg_primary + balances.non_reg_spouse + balances.primary_residence - remainingMortgageBalance;
+}
+
+function calculateProjectionSuccess(projections: YearlyProjection[]): boolean {
+  return projections.every(year => year.total_balance >= -0.01 && (year.expense_shortfall ?? 0) <= 0.01);
+}
+
+function calculateStandardOfLivingStability(projections: YearlyProjection[]): number {
+  const retirementPurchasingPower = projections
+    .filter(year => year.total_withdrawals > 0 || year.cpp > 0 || year.oas > 0)
+    .map(year => year.real_spending_power ?? year.after_tax_income);
+
+  if (retirementPurchasingPower.length <= 1) {
+    return 100;
+  }
+
+  const average = retirementPurchasingPower.reduce((sum, value) => sum + value, 0) / retirementPurchasingPower.length;
+  if (average <= 0) {
+    return 0;
+  }
+
+  const variance = retirementPurchasingPower.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / retirementPurchasingPower.length;
+  const coefficientOfVariation = Math.sqrt(variance) / average;
+  return Math.max(0, Math.min(100, 100 - coefficientOfVariation * 100));
+}
+
+export function summarizeProjectionMode(
+  mode: Scenario['return_type'],
+  projections: YearlyProjection[],
+  extra: Partial<ForecastAnalysisResult> = {}
+): ForecastAnalysisResult {
+  const eventMessages = projections.flatMap(year => year.messages ?? []);
+  const summaryLabel = mode === 'dynamic_guardrails'
+    ? 'Guardrail Success'
+    : mode === 'adaptive_withdrawal'
+      ? 'Stability Score'
+      : mode === 'goal_seeking'
+        ? 'Optimized Spending'
+        : 'Success Rate';
+
+  return {
+    mode,
+    percentile_10: projections,
+    percentile_50: projections,
+    percentile_90: projections,
+    success_rate: calculateProjectionSuccess(projections) ? 100 : 0,
+    iterations: 1,
+    summary_label: summaryLabel,
+    stability_score: mode === 'adaptive_withdrawal' ? calculateStandardOfLivingStability(projections) : undefined,
+    event_messages: eventMessages,
+    ...extra,
+  };
+}
+
+function calculateRemainingInflationAdjustedExpenses(
+  currentYearIndex: number,
+  currentAge: number,
+  totalYears: number,
+  expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[],
+  inflationRate: number,
+  healthcareInflationRate: number,
+  permanentExpenseMultiplier: number
+): number {
+  let remainingExpenses = 0;
+
+  for (let offset = currentYearIndex; offset < totalYears; offset++) {
+    const age = currentAge + (offset - currentYearIndex);
+    const expenses = getExpenseBreakdownForAge(age, expenseLadder, offset, inflationRate);
+    const healthcare = getHealthcareExpensesForAge(age, healthcareSteps, offset, healthcareInflationRate);
+    remainingExpenses += (expenses.living + expenses.travel + expenses.other) * permanentExpenseMultiplier + healthcare;
+  }
+
+  return remainingExpenses;
+}
+
+function describeHistoricalWindow(startYear: number, endYear: number): string {
+  if (startYear <= 1929 && endYear >= 1932) return `The ${startYear} Retiree (Great Depression)`;
+  if (startYear <= 1972 && endYear >= 1974) return `The ${startYear} Retiree (Stagflation)`;
+  if (startYear <= 2000 && endYear >= 2002) return `The ${startYear} Retiree (Dot-com Bust)`;
+  if (startYear <= 2007 && endYear >= 2009) return `The ${startYear} Retiree (Global Financial Crisis)`;
+  if (startYear <= 2020 && endYear >= 2022) return `The ${startYear} Retiree (Pandemic Volatility)`;
+  return `The ${startYear} Retiree`;
 }
 
 function getOneTimeEventsForAge(
@@ -449,7 +560,7 @@ function calculateOptimizedWithdrawals(
   province: Scenario['province'],
   year: number,
   inflationRate: number,
-  oasAmount: number,
+  _oasAmount: number,
   isCouple?: boolean,
   spouseIncome?: number,
   gisResult?: GISResult,
@@ -943,6 +1054,82 @@ export function buildReturnSequenceFromPeriods(
   });
 }
 
+function getHistoricalPortfolioWeights(
+  scenario: Scenario,
+  allocations: AssetAllocation[] | undefined,
+  savingsAccounts: SavingsAccount[]
+): { usWeight: number; cadWeight: number; intWeight: number; nonEquityWeight: number } {
+  const hasCustomAllocations = Boolean(allocations && allocations.length > 0);
+  const geoFromScenario = (!hasCustomAllocations && scenario.cad_equity_weight != null && scenario.us_equity_weight != null)
+    ? (() => {
+        const normalized = normalizeGeoMix(
+          scenario.cad_equity_weight,
+          scenario.us_equity_weight,
+          scenario.int_equity_weight
+        );
+        return {
+          cadWeight: normalized.cadWeight * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+          usWeight: normalized.usWeight * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+          intWeight: normalized.intWeight * DEFAULT_MONTE_CARLO_EQUITY_WEIGHT,
+        };
+      })()
+    : null;
+
+  const resolved = geoFromScenario ?? getPortfolioGeoWeights(allocations || [], savingsAccounts);
+  const totalEquityWeight = resolved.usWeight + resolved.cadWeight + resolved.intWeight;
+
+  return {
+    ...resolved,
+    nonEquityWeight: Math.max(0, 1 - totalEquityWeight),
+  };
+}
+
+function getHistoricalPortfolioReturn(
+  scenario: Scenario,
+  record: (typeof HISTORICAL_MARKET_DATA)[number],
+  allocations: AssetAllocation[] | undefined,
+  savingsAccounts: SavingsAccount[]
+): number {
+  const weights = getHistoricalPortfolioWeights(scenario, allocations, savingsAccounts);
+  const nonEquityReturn = Math.max(-4, Math.min(10, record.canada_cpi + 1.2));
+  const grossReturn =
+    weights.usWeight * record.sp500_return +
+    weights.cadWeight * record.tsx_return +
+    weights.intWeight * record.eafe_return +
+    weights.nonEquityWeight * nonEquityReturn;
+
+  return getNetReturnFromGross(grossReturn, scenario);
+}
+
+export function generateHistoricalWindows(
+  planDuration: number,
+  scenario: Scenario,
+  savingsAccounts: SavingsAccount[],
+  allocations?: AssetAllocation[]
+): Array<{ startYear: number; endYear: number; returnSequence: number[]; inflationSequence: number[]; label: string }> {
+  if (planDuration <= 0 || HISTORICAL_MARKET_DATA.length < planDuration) {
+    return [];
+  }
+
+  const windows: Array<{ startYear: number; endYear: number; returnSequence: number[]; inflationSequence: number[]; label: string }> = [];
+
+  for (let startIndex = 0; startIndex <= HISTORICAL_MARKET_DATA.length - planDuration; startIndex++) {
+    const slice = HISTORICAL_MARKET_DATA.slice(startIndex, startIndex + planDuration);
+    const startYear = slice[0].year;
+    const endYear = slice[slice.length - 1].year;
+
+    windows.push({
+      startYear,
+      endYear,
+      returnSequence: slice.map(record => getHistoricalPortfolioReturn(scenario, record, allocations, savingsAccounts)),
+      inflationSequence: slice.map(record => record.canada_cpi),
+      label: describeHistoricalWindow(startYear, endYear),
+    });
+  }
+
+  return windows;
+}
+
 const TFSA_ANNUAL_LIMIT_BASE_YEAR = 2026;
 const TFSA_ANNUAL_LIMIT_BASE = 7000;
 const TFSA_ANNUAL_LIMIT_STEP = 500;
@@ -1305,7 +1492,7 @@ export function runSingleProjection(
 
   const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
   const netExpectedReturn = getNetExpectedReturn(scenario);
-  const derivedReturnSequence = (!returnSequence && scenario.return_type === 'linear' && (scenario.return_periods?.length ?? 0) > 0)
+  const derivedReturnSequence = (!returnSequence && usesDeterministicReturnInputs(scenario.return_type) && (scenario.return_periods?.length ?? 0) > 0)
     ? buildReturnSequenceFromPeriods(totalYears, scenario.return_periods ?? [], scenario)
     : undefined;
   const effectiveReturnSequence = returnSequence ?? derivedReturnSequence;
@@ -1390,6 +1577,8 @@ export function runSingleProjection(
       .filter(account => account.account_type === 'tfsa' && account.person === 'spouse')
       .reduce((sum, account) => sum + account.current_balance, 0),
   };
+  let previousPortfolioReturn: number | undefined;
+  let initialRetirementWithdrawalRate: number | undefined;
 
   for (let year = 0; year < totalYears; year++) {
     const age = scenario.current_age + year;
@@ -1558,23 +1747,81 @@ export function runSingleProjection(
       charitableDonations: 0,
     };
 
-    const livingExpenses = adjustForInflation(getExpensesForAge(age, expenseLadder), year, effectiveInflation) * permanentExpenseMultiplier;
+    const baseExpenseBreakdown = getExpenseBreakdownForAge(age, expenseLadder, year, effectiveInflation);
+    let livingExpenseComponent = baseExpenseBreakdown.living * permanentExpenseMultiplier;
+    let travelExpenseComponent = baseExpenseBreakdown.travel * permanentExpenseMultiplier;
+    let otherExpenseComponent = baseExpenseBreakdown.other * permanentExpenseMultiplier;
     const healthcareExpenses = getHealthcareExpensesForAge(age, healthcareSteps, year, scenario.healthcare_inflation ?? effectiveInflation);
-    const totalExpensesNeeded = livingExpenses + healthcareExpenses + oneTimeExpenses;
-    const totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions + mortgagePayment;
+    const yearMessages: string[] = [];
+    const preExpensePortfolioBalance = calculatePortfolioBalance(balances, remainingMortgageBalance);
+    const remainingInflationAdjustedExpenses = calculateRemainingInflationAdjustedExpenses(
+      year,
+      age,
+      totalYears,
+      expenseLadder,
+      healthcareSteps,
+      effectiveInflation,
+      scenario.healthcare_inflation ?? effectiveInflation,
+      permanentExpenseMultiplier
+    );
+    const capitalUtilizationRatio = remainingInflationAdjustedExpenses > 0
+      ? preExpensePortfolioBalance / remainingInflationAdjustedExpenses
+      : undefined;
+    const isRetired = age >= effectiveRetirementAge;
 
+    if (scenario.return_type === 'dynamic_guardrails' && isRetired && capitalUtilizationRatio != null) {
+      if (capitalUtilizationRatio < 0.2) {
+        travelExpenseComponent *= 0.5;
+        otherExpenseComponent *= 0.5;
+        yearMessages.push(`Age ${age}: Preservation Rule triggered - discretionary spending reduced.`);
+      } else if (capitalUtilizationRatio > 1.4) {
+        livingExpenseComponent *= 1.1;
+        yearMessages.push(`Age ${age}: Prosperity Rule triggered - living expenses increased.`);
+      }
+    }
+
+    if (scenario.return_type === 'adaptive_withdrawal' && isRetired && year > 0 && previousPortfolioReturn != null && previousPortfolioReturn < 0) {
+      const inflationDivider = 1 + effectiveInflation / 100;
+      if (inflationDivider > 0) {
+        livingExpenseComponent /= inflationDivider;
+        travelExpenseComponent /= inflationDivider;
+        otherExpenseComponent /= inflationDivider;
+      }
+      yearMessages.push(`Age ${age}: Inflation Rule triggered - inflation increase skipped after a negative return year.`);
+    }
+
+    let livingExpenses = livingExpenseComponent + travelExpenseComponent + otherExpenseComponent;
     const guaranteedIncome = salary + totalCpp + totalOas + totalDbPension + gisAmount + inheritance;
+    let totalExpensesNeeded = livingExpenses + healthcareExpenses + oneTimeExpenses;
+    let totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions + mortgagePayment;
+
+    if (scenario.return_type === 'adaptive_withdrawal' && isRetired && preExpensePortfolioBalance > 0) {
+      const plannedWithdrawalRate = Math.max(0, totalCashNeed - guaranteedIncome) / preExpensePortfolioBalance;
+
+      if (initialRetirementWithdrawalRate == null && plannedWithdrawalRate > 0) {
+        initialRetirementWithdrawalRate = plannedWithdrawalRate;
+      } else if (
+        initialRetirementWithdrawalRate != null &&
+        plannedWithdrawalRate > initialRetirementWithdrawalRate * 1.2
+      ) {
+        livingExpenseComponent *= 0.9;
+        travelExpenseComponent *= 0.9;
+        otherExpenseComponent *= 0.9;
+        livingExpenses = livingExpenseComponent + travelExpenseComponent + otherExpenseComponent;
+        totalExpensesNeeded = livingExpenses + healthcareExpenses + oneTimeExpenses;
+        totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions + mortgagePayment;
+        yearMessages.push(`Age ${age}: 10% Rule triggered - withdrawals reduced to protect portfolio longevity.`);
+      }
+    }
 
     const baseTaxableIncome = primaryTaxableSalary + cpp + oas + dbPensionBase;
 
     const preWithdrawalRrsp = balances.rrsp + balances.rrsp_spouse;
     const preWithdrawalTfsa = balances.tfsa;
     const preWithdrawalFhsa = balances.fhsa;
-    const preWithdrawalNonReg = balances.non_reg_primary + balances.non_reg_spouse;
     const preWithdrawalNonRegPrimary = balances.non_reg_primary;
     const preWithdrawalNonRegSpouse = balances.non_reg_spouse;
 
-    const isRetired = age >= effectiveRetirementAge;
     const calculateTaxTotals = (candidateWithdrawals: WithdrawalResult) => {
       const candidatePrimaryTaxableIncome =
         primaryTaxableSalary + cpp + oas + dbPensionBase + candidateWithdrawals.rrsp + candidateWithdrawals.cap_gain_primary;
@@ -1742,6 +1989,7 @@ export function runSingleProjection(
 
     const returnRate = effectiveReturnSequence ? effectiveReturnSequence[year] : netExpectedReturn;
     applyReturns(balances, returnRate, yearAllocations);
+    previousPortfolioReturn = returnRate;
 
     const rrspMarketReturn = preWithdrawalRrsp * (returnRate / 100);
     const tfsaForeignWeight = getAccountForeignEquityWeight('tfsa', yearAllocations);
@@ -1822,6 +2070,10 @@ export function runSingleProjection(
     const afterTaxIncomeBeforeSalaryFunding = guaranteedIncome + withdrawals.rrsp + withdrawals.rrsp_spouse + nonRegWithdrawal - totalTax + withdrawals.tfsa + withdrawals.fhsa;
     const afterTaxIncome = afterTaxIncomeBeforeSalaryFunding - totalSalaryFundedContributions;
     const expenseShortfall = Math.max(0, totalExpensesNeeded + mortgagePayment - afterTaxIncome);
+    const realizedWithdrawalRate = preExpensePortfolioBalance > 0 ? withdrawals.total / preExpensePortfolioBalance : 0;
+    const spendingAdjustmentFactor = baseExpenseBreakdown.living + baseExpenseBreakdown.travel + baseExpenseBreakdown.other > 0
+      ? livingExpenses / ((baseExpenseBreakdown.living + baseExpenseBreakdown.travel + baseExpenseBreakdown.other) * permanentExpenseMultiplier)
+      : 1;
 
     const surplus = afterTaxIncome - totalExpensesNeeded - mortgagePayment;
     let primarySurplusToTfsa = 0;
@@ -1993,11 +2245,194 @@ export function runSingleProjection(
       fhsa_market_return: fhsaMarketReturn,
       non_reg_market_return: nonRegMarketReturn,
       non_reg_market_return_primary: nonRegMarketReturnPrimary,
-      non_reg_market_return_spouse: nonRegMarketReturnSpouse
+      non_reg_market_return_spouse: nonRegMarketReturnSpouse,
+      capital_utilization_ratio: capitalUtilizationRatio,
+      spending_adjustment_factor: spendingAdjustmentFactor,
+      withdrawal_rate: realizedWithdrawalRate,
+      portfolio_return: returnRate,
+      real_spending_power: presentValue(afterTaxIncome - mortgagePayment, year, effectiveInflation),
+      messages: yearMessages.length > 0 ? yearMessages : undefined,
     });
   }
 
   return projections;
+}
+
+export function runHistoricalBacktestSimulation(
+  scenario: Scenario,
+  incomeSources: IncomeSource[],
+  savingsAccounts: SavingsAccount[],
+  expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
+  oneTimeEvents: OneTimeEvent[],
+  allocations?: AssetAllocation[],
+  overrides?: ProjectionOverrides
+): ForecastAnalysisResult {
+  const effectiveRetirementAge = overrides?.retirementAge ?? scenario.retirement_age;
+  const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
+  const windows = generateHistoricalWindows(totalYears, scenario, savingsAccounts, allocations);
+
+  if (windows.length === 0) {
+    const fallbackProjection = runSingleProjection(
+      { ...scenario, return_type: 'linear' },
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      undefined,
+      undefined,
+      undefined,
+      allocations,
+      undefined,
+      overrides
+    );
+
+    return summarizeProjectionMode('historical_backtesting', fallbackProjection, {
+      summary_label: 'Historical Survival Rate',
+      window_summaries: [],
+    });
+  }
+
+  const windowResults = windows.map(window => {
+    const projections = runSingleProjection(
+      { ...scenario, return_type: 'linear' },
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      window.returnSequence,
+      undefined,
+      undefined,
+      allocations,
+      window.inflationSequence,
+      overrides
+    );
+    const finalNetWorth = projections[projections.length - 1]?.net_estate_value ?? projections[projections.length - 1]?.total_balance ?? 0;
+    const success = calculateProjectionSuccess(projections);
+
+    return {
+      projections,
+      summary: {
+        start_year: window.startYear,
+        end_year: window.endYear,
+        label: window.label,
+        success,
+        final_net_worth: finalNetWorth,
+      } as HistoricalWindowSummary,
+    };
+  });
+
+  const sorted = [...windowResults].sort((left, right) => {
+    const leftFinal = left.summary.final_net_worth;
+    const rightFinal = right.summary.final_net_worth;
+    return leftFinal - rightFinal;
+  });
+  const successful = windowResults.filter(result => result.summary.success);
+  const successRate = windowResults.length > 0 ? (successful.length / windowResults.length) * 100 : 0;
+  const failureCases = windowResults
+    .filter(result => !result.summary.success)
+    .map(result => ({
+      start_year: result.summary.start_year,
+      end_year: result.summary.end_year,
+      label: result.summary.label,
+      final_net_worth: result.summary.final_net_worth,
+    }));
+
+  const percentile10 = sorted[Math.floor((sorted.length - 1) * 0.1)]?.projections ?? sorted[0].projections;
+  const percentile50 = sorted[Math.floor((sorted.length - 1) * 0.5)]?.projections ?? sorted[0].projections;
+  const percentile90 = sorted[Math.floor((sorted.length - 1) * 0.9)]?.projections ?? sorted[sorted.length - 1].projections;
+
+  return {
+    mode: 'historical_backtesting',
+    percentile_10: percentile10,
+    percentile_50: percentile50,
+    percentile_90: percentile90,
+    success_rate: successRate,
+    iterations: windowResults.length,
+    summary_label: 'Historical Survival Rate',
+    failure_cases: failureCases,
+    window_summaries: windowResults.map(result => result.summary),
+    event_messages: percentile50.flatMap(year => year.messages ?? []),
+  };
+}
+
+export function runGoalSeekingSimulation(
+  scenario: Scenario,
+  incomeSources: IncomeSource[],
+  savingsAccounts: SavingsAccount[],
+  expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
+  oneTimeEvents: OneTimeEvent[],
+  allocations?: AssetAllocation[],
+  overrides?: ProjectionOverrides
+): ForecastAnalysisResult {
+  const lowerBound = 20000;
+  const upperBound = 500000;
+  const iterations = 24;
+  const legacyGoal = scenario.legacy_goal ?? 0;
+  const baseRetirementSpending = Math.max(1, getExpensesForAge(overrides?.retirementAge ?? scenario.retirement_age, expenseLadder));
+
+  let low = lowerBound;
+  let high = upperBound;
+  let bestSpending = lowerBound;
+  let bestProjection = runSingleProjection(
+    { ...scenario, return_type: 'linear' },
+    incomeSources,
+    savingsAccounts,
+    expenseLadder,
+    healthcareSteps,
+    oneTimeEvents,
+    undefined,
+    undefined,
+    undefined,
+    allocations,
+    undefined,
+    {
+      ...overrides,
+      expenseMultiplier: lowerBound / baseRetirementSpending,
+    }
+  );
+
+  for (let attempt = 0; attempt < iterations; attempt++) {
+    const candidateSpending = (low + high) / 2;
+    const candidateProjection = runSingleProjection(
+      { ...scenario, return_type: 'linear' },
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      undefined,
+      undefined,
+      undefined,
+      allocations,
+      undefined,
+      {
+        ...overrides,
+        expenseMultiplier: candidateSpending / baseRetirementSpending,
+      }
+    );
+
+    const finalEstate = candidateProjection[candidateProjection.length - 1]?.net_estate_value ?? candidateProjection[candidateProjection.length - 1]?.total_balance ?? 0;
+    const isSuccessful = calculateProjectionSuccess(candidateProjection) && finalEstate >= legacyGoal;
+
+    if (isSuccessful) {
+      bestSpending = candidateSpending;
+      bestProjection = candidateProjection;
+      low = candidateSpending;
+    } else {
+      high = candidateSpending;
+    }
+  }
+
+  return summarizeProjectionMode('goal_seeking', bestProjection, {
+    summary_label: 'Optimized Spending',
+    optimized_spending: bestSpending,
+    legacy_goal: legacyGoal,
+    iterations,
+  });
 }
 
 export async function runMonteCarloSimulation(
@@ -2048,11 +2483,13 @@ export async function runMonteCarloSimulation(
   );
 
   return {
+    mode: 'monte_carlo',
     percentile_10: result.percentile10,
     percentile_50: result.percentile50,
     percentile_90: result.percentile90,
     success_rate: result.successRate,
-    iterations: result.totalIterations
+    iterations: result.totalIterations,
+    summary_label: 'Success Rate',
   };
 }
 

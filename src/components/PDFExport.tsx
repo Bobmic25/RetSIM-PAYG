@@ -28,6 +28,7 @@ export default function PDFExport({
     const runOutAge = projections.find(p => p.total_balance <= 0)?.age;
     const firstRetirementYear = projections.find(p => p.total_withdrawals > 0 || p.cpp > 0);
     const successRate = monteCarloResult ? `${monteCarloResult.success_rate.toFixed(1)}%` : 'N/A';
+    const successLabel = monteCarloResult?.mode === 'historical_backtesting' ? 'Historical Survival Rate' : 'Success Rate';
     const spouseRetirementAge = scenario.spouse_retirement_age ?? scenario.retirement_age;
     const pv = (amount: number, yearIndex: number) => presentValue(amount, yearIndex, inflationRate);
     const lastNetWorthPV = pv(lastYear.total_balance, lastYear.year - 1);
@@ -209,7 +210,7 @@ export default function PDFExport({
       <div class="metric-value">${firstRetirementYear ? formatCurrency(pv(firstRetirementYear.after_tax_income, firstRetirementYear.year - 1)) : '—'}</div>
     </div>
     <div class="metric">
-      <div class="metric-label">Success Rate</div>
+      <div class="metric-label">${successLabel}</div>
       <div class="metric-value">${successRate}</div>
     </div>
   </div>

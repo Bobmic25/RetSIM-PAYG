@@ -132,6 +132,45 @@ const STRATEGIES = [
   },
 ];
 
+const RETURN_MODE_OPTIONS: Array<{
+  id: Scenario['return_type'];
+  label: string;
+  description: string;
+  badge?: string;
+}> = [
+  {
+    id: 'linear',
+    label: 'Manual Input',
+    description: 'Single deterministic return assumption, with optional custom return periods.',
+    badge: 'Default',
+  },
+  {
+    id: 'monte_carlo',
+    label: 'Monte Carlo',
+    description: 'Fat-tail stochastic simulation with percentile bands and a probability of success.',
+  },
+  {
+    id: 'historical_backtesting',
+    label: 'Historical Backtesting',
+    description: 'Rolls the plan across reference market eras to measure historical survival.',
+  },
+  {
+    id: 'goal_seeking',
+    label: 'Goal-Seeking',
+    description: 'Binary-search solver for the highest sustainable retirement spending level.',
+  },
+  {
+    id: 'dynamic_guardrails',
+    label: 'Dynamic Guardrails',
+    description: 'Applies preservation and prosperity rules based on portfolio funding health.',
+  },
+  {
+    id: 'adaptive_withdrawal',
+    label: 'Adaptive Withdrawal',
+    description: 'Adjusts withdrawals after poor returns to reduce sequence risk.',
+  },
+];
+
 function StrategyPicker({
   selected,
   onChange,
@@ -204,6 +243,12 @@ export default function ReturnsForm({
   const effectiveUsPortfolioPct = Number(((estimatedMarketAssumptions.totalEquityWeight * estimatedMarketAssumptions.usEquityWeight)).toFixed(1));
   const effectiveIntlPortfolioPct = Number(((estimatedMarketAssumptions.totalEquityWeight * estimatedMarketAssumptions.intEquityWeight)).toFixed(1));
   const effectiveNonEquityPortfolioPct = Number((estimatedMarketAssumptions.fixedIncomeWeight * 100).toFixed(1));
+  const usesDeterministicInputs = ['linear', 'goal_seeking', 'dynamic_guardrails', 'adaptive_withdrawal'].includes(scenario.return_type);
+  const showsMonteCarloControls = scenario.return_type === 'monte_carlo';
+  const showsHistoricalControls = scenario.return_type === 'historical_backtesting';
+  const showsGoalSeekingControls = scenario.return_type === 'goal_seeking';
+  const showsGuardrailsControls = scenario.return_type === 'dynamic_guardrails';
+  const showsAdaptiveControls = scenario.return_type === 'adaptive_withdrawal';
 
   const rebalanceGeoWeights = (
     current: { cad: number; us: number; intl: number },
@@ -269,17 +314,31 @@ export default function ReturnsForm({
     <div className="space-y-6">
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Return Type</label>
-        <div className="flex gap-4">
-          {(['linear', 'monte_carlo'] as const).map(type => (
-            <button key={type} type="button" onClick={() => onChange({ return_type: type })}
-              className={`flex-1 py-3 px-4 rounded-lg border-2 font-medium transition-colors ${
-                scenario.return_type === type ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-              }`}>
-              {type === 'linear' ? (
-                <span className="flex items-center justify-center gap-1.5">Manual input<span className="text-[10px] font-normal bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Default</span></span>
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  Monte Carlo (Volatile)
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {RETURN_MODE_OPTIONS.map(option => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => onChange({ return_type: option.id })}
+              className={`rounded-xl border-2 px-4 py-4 text-left transition-colors ${
+                scenario.return_type === option.id
+                  ? 'border-blue-600 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{option.label}</span>
+                    {option.badge && (
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                        {option.badge}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-gray-500">{option.description}</p>
+                </div>
+                {option.id === 'monte_carlo' && (
                   <span
                     role="button"
                     tabIndex={0}
@@ -290,15 +349,15 @@ export default function ReturnsForm({
                   >
                     <HelpCircle className="w-4 h-4" />
                   </span>
-                </span>
-              )}
+                )}
+              </div>
             </button>
           ))}
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {!(scenario.return_type === 'linear' && returnPeriods.length > 0) && (
+        {usesDeterministicInputs && !(scenario.return_type === 'linear' && returnPeriods.length > 0) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {scenario.return_type === 'linear' ? 'Default Annual Return (%)' : 'Expected Annual Return (%)'}
@@ -334,7 +393,7 @@ export default function ReturnsForm({
           </p>
         </div>
 
-        {scenario.return_type === 'monte_carlo' && (
+        {showsMonteCarloControls && (
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Standard Deviation (%)</label>
@@ -367,12 +426,27 @@ export default function ReturnsForm({
           </>
         )}
 
+        {showsGoalSeekingControls && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Legacy Goal ($)</label>
+            <input
+              type="number"
+              step="5000"
+              min={0}
+              value={scenario.legacy_goal ?? 0}
+              onChange={e => onChange({ legacy_goal: Math.max(0, parseFloat(e.target.value) || 0) })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <p className="text-xs text-gray-500 mt-1">The solver searches for the highest annual retirement spending that still finishes at or above this estate target.</p>
+          </div>
+        )}
+
         <StrategyPicker
           selected={scenario.withdrawal_strategy}
           onChange={(id) => onChange({ withdrawal_strategy: id })}
         />
 
-        {scenario.return_type === 'monte_carlo' && (
+        {showsMonteCarloControls && (
           <div className="md:col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
@@ -416,6 +490,54 @@ export default function ReturnsForm({
                 </label>
               </div>
             </div>
+          </div>
+        )}
+
+        {showsHistoricalControls && (
+          <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+            <h4 className="font-semibold text-amber-900">Historical Backtesting</h4>
+            <p className="mt-1 text-sm text-amber-900">
+              The app runs your full retirement plan across rolling historical windows and reports the historical survival rate plus the failure vintages.
+            </p>
+            <p className="mt-2 text-xs text-amber-800">
+              Portfolio geography is still respected. Equity sleeves use the configured Canada, US, and International mix, while the non-equity sleeve uses a low-volatility reference return proxy.
+            </p>
+          </div>
+        )}
+
+        {showsGoalSeekingControls && (
+          <div className="md:col-span-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4">
+            <h4 className="font-semibold text-emerald-900">Goal-Seeking Solver</h4>
+            <p className="mt-1 text-sm text-emerald-900">
+              Uses a binary search between $20,000 and $500,000 to solve for the highest sustainable annual spending level under the current tax and withdrawal rules.
+            </p>
+            <p className="mt-2 text-xs text-emerald-800">
+              The solver evaluates the full projection repeatedly, so OAS clawbacks and progressive tax brackets remain part of the optimization instead of being approximated away.
+            </p>
+          </div>
+        )}
+
+        {showsGuardrailsControls && (
+          <div className="md:col-span-2 rounded-lg border border-purple-200 bg-purple-50 px-4 py-4">
+            <h4 className="font-semibold text-purple-900">Dynamic Guardrails</h4>
+            <p className="mt-1 text-sm text-purple-900">
+              Each year the engine checks the capital utilization ratio and either trims discretionary spending or increases living expenses when the plan is materially overfunded.
+            </p>
+            <p className="mt-2 text-xs text-purple-800">
+              Preservation Rule: travel and other expenses are cut by 50% below the 20% threshold. Prosperity Rule: living expenses get a 10% bonus above the 140% threshold.
+            </p>
+          </div>
+        )}
+
+        {showsAdaptiveControls && (
+          <div className="md:col-span-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-4">
+            <h4 className="font-semibold text-cyan-900">Adaptive Withdrawal Logic</h4>
+            <p className="mt-1 text-sm text-cyan-900">
+              Withdrawals respond to prior-year performance. Negative return years freeze inflation increases, and the 10% rule cuts withdrawals when the withdrawal rate drifts too far above the opening retirement rate.
+            </p>
+            <p className="mt-2 text-xs text-cyan-800">
+              Results include a standard-of-living stability score so you can judge how much real purchasing power varied across retirement.
+            </p>
           </div>
         )}
 
@@ -486,7 +608,7 @@ export default function ReturnsForm({
         </div>
       </div>
 
-      {scenario.return_type === 'linear' && (
+      {usesDeterministicInputs && (
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <div>
@@ -560,7 +682,7 @@ export default function ReturnsForm({
         </div>
       )}
 
-      {scenario.return_type === 'monte_carlo' && (
+      {showsMonteCarloControls && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <h4 className="font-semibold text-yellow-900 mb-1">About Monte Carlo Simulation</h4>
           <p className="text-sm text-yellow-800">

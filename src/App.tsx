@@ -30,7 +30,13 @@ import {
   Province,
   SavedComparisonResult,
 } from './types/retirement';
-import { runSingleProjection, type ProjectionOverrides } from './lib/projectionEngine';
+import {
+  runSingleProjection,
+  runHistoricalBacktestSimulation,
+  runGoalSeekingSimulation,
+  summarizeProjectionMode,
+  type ProjectionOverrides,
+} from './lib/projectionEngine';
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
 import { fetchLiveTfsaLimit, type LiveTfsaLimitData } from './lib/tfsaDataService';
 import { fetchLiveInflationData, getCachedInflationData, type LiveInflationData } from './lib/inflationDataService';
@@ -333,6 +339,34 @@ function App() {
           overrides
         });
       }).catch(() => {});
+    } else if (simScenario.return_type === 'historical_backtesting') {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      const result = runHistoricalBacktestSimulation(
+        simScenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        assetAllocations,
+        overrides
+      );
+      setProjections(result.percentile_50);
+      setMonteCarloResult(result);
+    } else if (simScenario.return_type === 'goal_seeking') {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      const result = runGoalSeekingSimulation(
+        simScenario,
+        incomeSources,
+        savingsAccounts,
+        expenseLadder,
+        healthcareSteps,
+        oneTimeEvents,
+        assetAllocations,
+        overrides
+      );
+      setProjections(result.percentile_50);
+      setMonteCarloResult(result);
     } else {
       await new Promise<void>(resolve => setTimeout(resolve, 0));
       const result = runSingleProjection(
@@ -350,7 +384,11 @@ function App() {
         overrides
       );
       setProjections(result);
-      setMonteCarloResult(undefined);
+      setMonteCarloResult(
+        simScenario.return_type === 'linear'
+          ? undefined
+          : summarizeProjectionMode(simScenario.return_type, result)
+      );
     }
 
     setIsCalculating(false);
@@ -457,7 +495,7 @@ function App() {
 
     // In Monte Carlo mode with existing results, only re-run the deterministic projection
     // to avoid expensive MC re-computation when the user is just browsing strategies.
-    if (updatedScenario.return_type === 'monte_carlo' && monteCarloResult) {
+    if (updatedScenario.return_type === 'monte_carlo' && monteCarloResult?.mode === 'monte_carlo') {
       setMcIsStale(true);
       setIsCalculating(true);
       await new Promise<void>(resolve => setTimeout(resolve, 0));

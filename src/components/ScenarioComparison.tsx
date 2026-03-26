@@ -48,7 +48,10 @@ export default function ScenarioComparison({ scenarios }: ScenarioComparisonProp
               tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
             />
             <Tooltip
-              formatter={(value: number) => `$${value.toLocaleString()}`}
+              formatter={(value: number | string | readonly (number | string)[] | undefined) => {
+                const numericValue = Array.isArray(value) ? Number(value[0]) : Number(value ?? 0);
+                return `$${numericValue.toLocaleString()}`;
+              }}
               labelFormatter={(label) => `Year ${label}`}
             />
             <Legend />

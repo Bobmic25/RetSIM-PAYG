@@ -102,7 +102,7 @@ export default function AssistantPanel({ isOpen, entryPoint, context, onClose }:
             <div className="mt-3 space-y-2 text-sm text-slate-700">
               <p><span className="font-semibold text-slate-900">Section:</span> {context.currentStepLabel}</p>
               <p><span className="font-semibold text-slate-900">Scenario:</span> {context.scenarioName}</p>
-              <p><span className="font-semibold text-slate-900">Return mode:</span> {context.returnType === 'monte_carlo' ? 'Monte Carlo' : 'Linear'}</p>
+              <p><span className="font-semibold text-slate-900">Return mode:</span> {context.returnType.replace(/_/g, ' ')}</p>
               <p><span className="font-semibold text-slate-900">Strategy:</span> {context.withdrawalStrategy.replace(/_/g, ' ')}</p>
               {context.hasResults && (
                 <p><span className="font-semibold text-slate-900">Funding:</span> {typeof context.fundingPercent === 'number' ? `${context.fundingPercent}%` : 'n/a'}</p>
