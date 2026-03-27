@@ -8,6 +8,7 @@ import type {
   SavingsAccount,
   Scenario,
 } from '../types/retirement';
+import type { MonteCarloPathSet } from '../lib/projectionEngine';
 import { optimizeRetirementSuccessPlan, type RetirementSuccessOptimizationResult } from '../lib/successOptimization';
 import { clearTaxCache } from '../lib/taxEngine';
 
@@ -19,7 +20,7 @@ export interface SuccessOptimizationWorkerRequest {
   healthcareSteps: HealthcareStep[];
   oneTimeEvents: OneTimeEvent[];
   allocations: AssetAllocation[];
-  baselineMonteCarloResult: MonteCarloResult;
+  baselineMonteCarloResult: MonteCarloResult & { pathSet?: MonteCarloPathSet };
 }
 
 export interface SuccessOptimizationWorkerResultMessage {

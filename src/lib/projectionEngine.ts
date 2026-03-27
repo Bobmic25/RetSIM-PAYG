@@ -69,6 +69,8 @@ export interface ProjectionOverrides {
   disableRrspExhaustion?: boolean;
   additionalMonthlySavings?: number;
   withdrawalStrategy?: Scenario['withdrawal_strategy'];
+  baselineExpenseLadder?: ExpenseLadder[];
+  baselineOneTimeEvents?: OneTimeEvent[];
 }
 
 export const COMPARISON_STRATEGIES: Array<{
@@ -1415,6 +1417,20 @@ async function runProjectionForComparisonMode(
 ): Promise<YearlyProjection[]> {
   await new Promise<void>(resolve => setTimeout(resolve, 0));
 
+  // For maximize_spending with a minimum end balance target, use dedicated optimization
+  if (scenario.withdrawal_strategy === 'maximize_spending' && (scenario.minimum_end_balance ?? 0) > 0 && scenario.return_type === 'linear') {
+    const result = runMaximizeSpendingWithEndBalance(
+      scenario,
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      allocations
+    );
+    return result.percentile_50;
+  }
+
   switch (scenario.return_type) {
     case 'historical_backtesting': {
       const result = runHistoricalBacktestSimulation(
@@ -1581,7 +1597,11 @@ export function runSingleProjection(
       : savingsAccounts.filter(a => a.account_type === 'non_reg' && a.is_primary_residence).reduce((s, a) => s + a.current_balance, 0),
   };
   let remainingMortgageBalance = Math.max(0, scenario.mortgage?.balance ?? 0);
-  let permanentExpenseMultiplier = expenseMultiplier;
+  const optimizationExpenseMultiplier = expenseMultiplier;
+  let formExpenseMultiplier = 1;
+  let permanentExpenseMultiplier = optimizationExpenseMultiplier * formExpenseMultiplier;
+  const baselineExpenseLadderInput = overrides?.baselineExpenseLadder ?? expenseLadder;
+  const baselineOneTimeEventsInput = overrides?.baselineOneTimeEvents ?? oneTimeEvents;
 
   const cppStartAge = overrideCppStartAge ?? scenario.cpp_start_age;
   const oasStartAge = overrideOasStartAge ?? scenario.oas_start_age;
@@ -1683,6 +1703,7 @@ export function runSingleProjection(
     const totalDbPension = dbPensionBase + spouseDbPensionBase;
 
     const { inheritance, expenses: oneTimeExpenses, downsizingEvents } = getOneTimeEventsForAge(age, oneTimeEvents, year, effectiveInflation);
+    const { expenses: baselineOneTimeExpenses } = getOneTimeEventsForAge(age, baselineOneTimeEventsInput, year, effectiveInflation);
 
     const oasReceiving = totalOas > 0;
     const rrifWithdrawalEstimate = (age >= 72 && (balances.rrsp + balances.rrsp_spouse) > 0)
@@ -1790,7 +1811,8 @@ export function runSingleProjection(
       balances.non_reg_primary_acb += proceeds;
 
       if ((downsizingEvent.expense_reduction_pct ?? 0) > 0) {
-        permanentExpenseMultiplier *= Math.max(0, 1 - (downsizingEvent.expense_reduction_pct ?? 0) / 100);
+        formExpenseMultiplier *= Math.max(0, 1 - (downsizingEvent.expense_reduction_pct ?? 0) / 100);
+        permanentExpenseMultiplier = optimizationExpenseMultiplier * formExpenseMultiplier;
       }
     }
 
@@ -1815,10 +1837,23 @@ export function runSingleProjection(
     };
 
     const baseExpenseBreakdown = getExpenseBreakdownForAge(age, expenseLadder, year, effectiveInflation);
+    const originalBaseExpenseBreakdown = getExpenseBreakdownForAge(age, baselineExpenseLadderInput, year, effectiveInflation);
     let livingExpenseComponent = baseExpenseBreakdown.living * permanentExpenseMultiplier;
     let travelExpenseComponent = baseExpenseBreakdown.travel * permanentExpenseMultiplier;
     let otherExpenseComponent = baseExpenseBreakdown.other * permanentExpenseMultiplier;
     const healthcareExpenses = getHealthcareExpensesForAge(age, healthcareSteps, year, scenario.healthcare_inflation ?? effectiveInflation);
+    const requestedExpenses =
+      (baseExpenseBreakdown.living +
+      baseExpenseBreakdown.travel +
+      baseExpenseBreakdown.other) * formExpenseMultiplier +
+      healthcareExpenses +
+      oneTimeExpenses;
+    const originalRequestedExpenses =
+      (originalBaseExpenseBreakdown.living +
+      originalBaseExpenseBreakdown.travel +
+      originalBaseExpenseBreakdown.other) +
+      healthcareExpenses +
+      baselineOneTimeExpenses;
     const yearMessages: string[] = [];
     const preExpensePortfolioBalance = calculatePortfolioBalance(balances, remainingMortgageBalance);
     const remainingInflationAdjustedExpenses = calculateRemainingInflationAdjustedExpenses(
@@ -2286,6 +2321,8 @@ export function runSingleProjection(
       one_time_expenses: oneTimeExpenses,
       healthcare_expenses: healthcareExpenses,
       total_expenses: totalExpensesNeeded,
+      requested_expenses: requestedExpenses,
+      original_requested_expenses: originalRequestedExpenses,
       net_cash_flow: afterTaxIncome - totalExpensesNeeded - mortgagePayment,
       expense_shortfall: expenseShortfall,
       rrsp_contribution: contributions.rrsp + contributions.rrsp_spouse,
@@ -2428,6 +2465,89 @@ export function runHistoricalBacktestSimulation(
     window_summaries: windowResults.map(result => result.summary),
     event_messages: percentile50.flatMap(year => year.messages ?? []),
   };
+}
+
+export function runMaximizeSpendingWithEndBalance(
+  scenario: Scenario,
+  incomeSources: IncomeSource[],
+  savingsAccounts: SavingsAccount[],
+  expenseLadder: ExpenseLadder[],
+  healthcareSteps: HealthcareStep[] = [],
+  oneTimeEvents: OneTimeEvent[],
+  allocations?: AssetAllocation[],
+  overrides?: ProjectionOverrides
+): ForecastAnalysisResult {
+  const lowerBound = 20000;
+  const upperBound = 500000;
+  const iterations = 24;
+  const targetEndBalance = scenario.minimum_end_balance ?? 100000;
+  const baseRetirementSpending = Math.max(1, getExpensesForAge(overrides?.retirementAge ?? scenario.retirement_age, expenseLadder));
+  const tolerance = Math.max(5000, targetEndBalance * 0.05);
+
+  let low = lowerBound;
+  let high = upperBound;
+  let bestSpending = lowerBound;
+  let bestProjection = runSingleProjection(
+    { ...scenario, return_type: 'linear' },
+    incomeSources,
+    savingsAccounts,
+    expenseLadder,
+    healthcareSteps,
+    oneTimeEvents,
+    undefined,
+    undefined,
+    undefined,
+    allocations,
+    undefined,
+    {
+      ...overrides,
+      expenseMultiplier: lowerBound / baseRetirementSpending,
+    }
+  );
+
+  for (let attempt = 0; attempt < iterations; attempt++) {
+    const candidateSpending = (low + high) / 2;
+    const candidateProjection = runSingleProjection(
+      { ...scenario, return_type: 'linear' },
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      undefined,
+      undefined,
+      undefined,
+      allocations,
+      undefined,
+      {
+        ...overrides,
+        expenseMultiplier: candidateSpending / baseRetirementSpending,
+      }
+    );
+
+    const finalBalance = candidateProjection[candidateProjection.length - 1]?.net_estate_value ??
+                        candidateProjection[candidateProjection.length - 1]?.total_balance ?? 0;
+    const balanceDifference = finalBalance - targetEndBalance;
+
+    if (Math.abs(balanceDifference) <= tolerance) {
+      bestSpending = candidateSpending;
+      bestProjection = candidateProjection;
+      low = candidateSpending;
+    } else if (balanceDifference > tolerance) {
+      bestSpending = candidateSpending;
+      bestProjection = candidateProjection;
+      low = candidateSpending;
+    } else {
+      high = candidateSpending;
+    }
+  }
+
+  return summarizeProjectionMode('linear', bestProjection, {
+    summary_label: 'Maximized Spending',
+    optimized_spending: bestSpending,
+    legacy_goal: targetEndBalance,
+    iterations,
+  });
 }
 
 export function runGoalSeekingSimulation(

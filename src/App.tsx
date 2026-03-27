@@ -35,6 +35,7 @@ import {
   runHistoricalBacktestSimulation,
   runGoalSeekingSimulation,
   summarizeProjectionMode,
+  type MonteCarloPathSet,
   type ProjectionOverrides,
 } from './lib/projectionEngine';
 import { fetchLiveTaxData, type LiveTaxData } from './lib/taxDataService';
@@ -67,6 +68,7 @@ const NAV_ITEMS = [
 ];
 
 const RESULTS_STEP = NAV_ITEMS.length - 1;
+type MonteCarloResultWithPathSet = MonteCarloResult & { pathSet?: MonteCarloPathSet };
 
 const IconNav = ({ currentStep, onNavigate, highestVisited }: { currentStep: number; onNavigate: (index: number) => void; highestVisited: number; }) => {
   const clickRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -180,6 +182,7 @@ function App() {
     us_equity_weight: 40,
     int_equity_weight: 0,
     legacy_goal: DEFAULT_LEGACY_GOAL,
+    minimum_end_balance: 0,
     life_expectancy: 90,
     healthcare_inflation: 3.5
   });
@@ -191,9 +194,15 @@ function App() {
   const [healthcareSteps, setHealthcareSteps] = useState<HealthcareStep[]>([]);
   const [oneTimeEvents, setOneTimeEvents] = useState<OneTimeEvent[]>([]);
   const [projections, setProjections] = useState<YearlyProjection[]>([]);
-  const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | undefined>();
-  // MC cache: stores last-used scenario hash, return sequence, and result
-  const monteCarloCacheRef = useRef<{ scenarioHash: string; result: MonteCarloResult; projections: YearlyProjection[] } | null>(null);
+  const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResultWithPathSet | undefined>();
+  // MC cache: stores last-used projection hash and reusable stochastic path set
+  const monteCarloCacheRef = useRef<{
+    projectionHash: string;
+    pathHash: string;
+    pathSet?: MonteCarloPathSet;
+    result: MonteCarloResultWithPathSet;
+    projections: YearlyProjection[];
+  } | null>(null);
   // Used to force MC re-run
   const [mcForceRerun, setMcForceRerun] = useState(0);
   const [optimizedProjections, setOptimizedProjections] = useState<YearlyProjection[] | null>(null);
@@ -214,7 +223,7 @@ function App() {
   const [isUndoingSuccessOptimization, setIsUndoingSuccessOptimization] = useState(false);
   const [successOptimizationRefreshTrigger, setSuccessOptimizationRefreshTrigger] = useState(0);
   const [successOptimizationRequested, setSuccessOptimizationRequested] = useState(false);
-  const [successOptimizationUndoState, setSuccessOptimizationUndoState] = useState<{
+  const [successOptimizationAppliedState, setSuccessOptimizationAppliedState] = useState<{
     expenseLadder: ExpenseLadder[];
     oneTimeEvents: OneTimeEvent[];
   } | null>(null);
@@ -322,8 +331,8 @@ function App() {
     }
   };
 
-  const hashScenario = (s: Scenario, inc: IncomeSource[], sav: SavingsAccount[], exp: ExpenseLadder[], hc: HealthcareStep[], ev: OneTimeEvent[], alloc: AssetAllocation[]) => {
-    // Only hash MC-relevant fields
+  const hashProjectionInputs = (s: Scenario, inc: IncomeSource[], sav: SavingsAccount[], exp: ExpenseLadder[], hc: HealthcareStep[], ev: OneTimeEvent[], alloc: AssetAllocation[]) => {
+    // Hash all projection inputs so we can reuse exact results when nothing changed.
     return JSON.stringify({
       scenario: s,
       incomeSources: inc,
@@ -335,6 +344,27 @@ function App() {
     });
   };
 
+  const hashPathInputs = (s: Scenario, sav: SavingsAccount[], alloc: AssetAllocation[]) => {
+    // Hash only stochastic path drivers so we can reuse a fixed MC path set across activities.
+    return JSON.stringify({
+      scenario: {
+        current_age: s.current_age,
+        retirement_age: s.retirement_age,
+        plan_duration: s.plan_duration,
+        inflation_rate: s.inflation_rate,
+        expected_return: s.expected_return,
+        management_fee_pct: s.management_fee_pct,
+        return_std_dev: s.return_std_dev,
+        monte_carlo_iterations: s.monte_carlo_iterations,
+        cad_equity_weight: s.cad_equity_weight,
+        us_equity_weight: s.us_equity_weight,
+        int_equity_weight: s.int_equity_weight,
+      },
+      savingsAccounts: sav,
+      assetAllocations: alloc,
+    });
+  };
+
   const runSimulation = async (
     scenarioOverride?: Scenario,
     overrides?: ProjectionOverrides,
@@ -343,8 +373,15 @@ function App() {
     forceRerun?: boolean
   ) => {
     const simScenario = scenarioOverride ?? scenario;
-    const simExpenseLadder = expenseLadderOverride ?? expenseLadder;
-    const simOneTimeEvents = oneTimeEventsOverride ?? oneTimeEvents;
+    const simExpenseLadder = expenseLadderOverride ?? successOptimizationAppliedState?.expenseLadder ?? expenseLadder;
+    const simOneTimeEvents = oneTimeEventsOverride ?? successOptimizationAppliedState?.oneTimeEvents ?? oneTimeEvents;
+    const simOverrides = successOptimizationAppliedState
+      ? {
+          ...(overrides ?? {}),
+          baselineExpenseLadder: overrides?.baselineExpenseLadder ?? expenseLadder,
+          baselineOneTimeEvents: overrides?.baselineOneTimeEvents ?? oneTimeEvents,
+        }
+      : overrides;
 
     if (activeWorkerRef.current) {
       activeWorkerRef.current.terminate();
@@ -360,16 +397,33 @@ function App() {
     terminateOptimizationWorker();
 
     if (simScenario.return_type === 'monte_carlo') {
-      // Compute a hash of all MC-relevant inputs
-      const scenarioHash = hashScenario(simScenario, incomeSources, savingsAccounts, simExpenseLadder, healthcareSteps, simOneTimeEvents, assetAllocations);
-      if (!forceRerun && monteCarloCacheRef.current && monteCarloCacheRef.current.scenarioHash === scenarioHash) {
+      const projectionHash = hashProjectionInputs(
+        simScenario,
+        incomeSources,
+        savingsAccounts,
+        simExpenseLadder,
+        healthcareSteps,
+        simOneTimeEvents,
+        assetAllocations
+      );
+      const baselineHash = successOptimizationAppliedState
+        ? JSON.stringify({ baselineExpenseLadder: expenseLadder, baselineOneTimeEvents: oneTimeEvents })
+        : '';
+      const pathHash = hashPathInputs(simScenario, savingsAccounts, assetAllocations);
+      const cached = monteCarloCacheRef.current;
+
+      if (!forceRerun && cached && cached.projectionHash === `${projectionHash}::${baselineHash}`) {
         // Use cached result
-        setProjections(monteCarloCacheRef.current.projections);
-        setMonteCarloResult(monteCarloCacheRef.current.result);
+        setProjections(cached.projections);
+        setMonteCarloResult(cached.result);
         setIsCalculating(false);
         setMcProgress(null);
         return;
       }
+
+      const reusablePathSet: MonteCarloPathSet | undefined =
+        !forceRerun && cached && cached.pathHash === pathHash ? cached.pathSet : undefined;
+
       clearTaxCache();
       const worker = new MonteCarloWorker();
       activeWorkerRef.current = worker;
@@ -380,14 +434,20 @@ function App() {
           if (msg.type === 'progress') {
             setMcProgress({ completed: msg.completed, total: msg.total });
           } else if (msg.type === 'result') {
-            setProjections(msg.result.percentile_50);
-            setMonteCarloResult(msg.result);
+            const resultWithPathSet: MonteCarloResultWithPathSet = {
+              ...msg.result,
+              pathSet: msg.result.pathSet ?? reusablePathSet,
+            };
+            setProjections(resultWithPathSet.percentile_50);
+            setMonteCarloResult(resultWithPathSet);
             setMcIsStale(false);
             // Save to cache
             monteCarloCacheRef.current = {
-              scenarioHash,
-              result: msg.result,
-              projections: msg.result.percentile_50
+              projectionHash: `${projectionHash}::${baselineHash}`,
+              pathHash,
+              pathSet: resultWithPathSet.pathSet,
+              result: resultWithPathSet,
+              projections: resultWithPathSet.percentile_50
             };
             worker.terminate();
             activeWorkerRef.current = null;
@@ -411,7 +471,8 @@ function App() {
           healthcareSteps,
           oneTimeEvents: simOneTimeEvents,
           allocations: assetAllocations,
-          overrides
+          overrides: simOverrides,
+          preGeneratedPaths: reusablePathSet,
         });
       }).catch(() => {});
     } else if (simScenario.return_type === 'historical_backtesting') {
@@ -424,7 +485,7 @@ function App() {
         healthcareSteps,
         simOneTimeEvents,
         assetAllocations,
-        overrides
+        simOverrides
       );
       setProjections(result.percentile_50);
       setMonteCarloResult(result);
@@ -438,7 +499,7 @@ function App() {
         healthcareSteps,
         simOneTimeEvents,
         assetAllocations,
-        overrides
+        simOverrides
       );
       setProjections(result.percentile_50);
       setMonteCarloResult(result);
@@ -456,7 +517,7 @@ function App() {
         undefined,
         assetAllocations,
         undefined,
-        overrides
+        simOverrides
       );
       setProjections(result);
       setMonteCarloResult(
@@ -662,15 +723,21 @@ function App() {
 
     try {
       setIsApplyingSuccessOptimization(true);
-      setSuccessOptimizationUndoState({
-        expenseLadder: expenseLadder.map(row => ({ ...row })),
-        oneTimeEvents: oneTimeEvents.map(event => ({ ...event })),
+      setSuccessOptimizationAppliedState({
+        expenseLadder: nextExpenseLadder.map(row => ({ ...row })),
+        oneTimeEvents: nextOneTimeEvents.map(event => ({ ...event })),
       });
-      setExpenseLadder(nextExpenseLadder);
-      setOneTimeEvents(nextOneTimeEvents);
       setSuccessOptimizationRefreshTrigger(trigger => trigger + 1);
       console.info('Applying optimization delta', successOptimization.delta);
-      await runSimulation(undefined, undefined, nextExpenseLadder, nextOneTimeEvents);
+      await runSimulation(
+        undefined,
+        {
+          baselineExpenseLadder: expenseLadder,
+          baselineOneTimeEvents: oneTimeEvents,
+        },
+        nextExpenseLadder,
+        nextOneTimeEvents
+      );
     } catch (error) {
       console.error('Error applying success optimization:', error);
     } finally {
@@ -679,22 +746,15 @@ function App() {
   };
 
   const handleUndoSuccessOptimization = async () => {
-    if (!successOptimizationUndoState) {
+    if (!successOptimizationAppliedState) {
       return;
     }
 
     try {
       setIsUndoingSuccessOptimization(true);
-      setExpenseLadder(successOptimizationUndoState.expenseLadder);
-      setOneTimeEvents(successOptimizationUndoState.oneTimeEvents);
-      setSuccessOptimizationUndoState(null);
+      setSuccessOptimizationAppliedState(null);
       setSuccessOptimizationRefreshTrigger(trigger => trigger + 1);
-      await runSimulation(
-        undefined,
-        undefined,
-        successOptimizationUndoState.expenseLadder,
-        successOptimizationUndoState.oneTimeEvents
-      );
+      await runSimulation();
     } catch (error) {
       console.error('Error undoing success optimization:', error);
     } finally {
@@ -800,6 +860,7 @@ function App() {
       us_equity_weight: loadedUsWeight,
       int_equity_weight: loadedIntWeight,
       legacy_goal: data.scenario.legacy_goal ?? DEFAULT_LEGACY_GOAL,
+      minimum_end_balance: data.scenario.minimum_end_balance ?? 0,
       return_std_dev: data.scenario.return_std_dev ?? loadedMarketAssumptions.stdDev,
     });
     setIncomeSources(data.incomeSources);
@@ -970,7 +1031,7 @@ function App() {
                   isApplyingSuccessOptimization={isApplyingSuccessOptimization}
                   onUndoSuccessOptimization={handleUndoSuccessOptimization}
                   isUndoingSuccessOptimization={isUndoingSuccessOptimization}
-                  hasAppliedSuccessOptimization={Boolean(successOptimizationUndoState)}
+                  hasAppliedSuccessOptimization={Boolean(successOptimizationAppliedState)}
                   onTaxDataRefreshed={(data) => {
                     setActiveLiveTaxData(data);
                     setLiveTaxData(data);
@@ -1025,7 +1086,7 @@ function App() {
                   AI Suggested Improvements
                 </button>
                 <button
-                  onClick={() => runSimulation()}
+                  onClick={handleRerunMonteCarlo}
                   disabled={isCalculating}
                   className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed"
                 >

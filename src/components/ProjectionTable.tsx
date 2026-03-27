@@ -438,6 +438,7 @@ export default function ProjectionTable({
                     >
                       Age
                     </th>
+                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">Market Return (%)</th>
                     <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">RRSP Market Return</th>
                     <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">TFSA Market Return</th>
                     {hasFhsa && <th className="px-3 py-2 text-right font-medium whitespace-nowrap sticky top-0 bg-gray-800 z-20">FHSA Market Return</th>}
@@ -492,6 +493,7 @@ export default function ProjectionTable({
                       <tr key={row.age} style={{ height: ROW_HEIGHT }}
                         className={`border-b border-gray-100 ${rowBg} hover:bg-yellow-50 transition-colors`}>
                         <td className={`px-3 py-1.5 font-semibold sticky left-0 z-10 ${stickyAgeBgClass}`}>{row.age}</td>
+                        <td className="px-3 py-1.5 text-right font-medium text-gray-700">{row.portfolio_return != null ? `${row.portfolio_return.toFixed(2)}%` : '—'}</td>
                         <td className={`px-3 py-1.5 text-right font-medium ${growthColor(row.rrsp_market_return ?? 0)}`}>{(row.rrsp_market_return ?? 0) !== 0 ? fmtPv(row.rrsp_market_return ?? 0, yr) : '—'}</td>
                         <td className={`px-3 py-1.5 text-right font-medium ${growthColor(row.tfsa_market_return ?? 0)}`}>{(row.tfsa_market_return ?? 0) !== 0 ? fmtPv(row.tfsa_market_return ?? 0, yr) : '—'}</td>
                         {hasFhsa && <td className={`px-3 py-1.5 text-right font-medium ${growthColor(row.fhsa_market_return ?? 0)}`}>{(row.fhsa_market_return ?? 0) !== 0 ? fmtPv(row.fhsa_market_return ?? 0, yr) : '—'}</td>}

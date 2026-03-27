@@ -446,6 +446,24 @@ export default function ReturnsForm({
           onChange={(id) => onChange({ withdrawal_strategy: id })}
         />
 
+        {scenario.withdrawal_strategy === 'maximize_spending' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Minimum End-of-Plan Balance ($)</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={(scenario.minimum_end_balance ?? 0) > 0 ? `$${(scenario.minimum_end_balance ?? 0).toLocaleString('en-CA')}` : ''}
+              placeholder="$0"
+              onChange={e => {
+                const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                onChange({ minimum_end_balance: Math.max(0, parseInt(cleaned) || 0) });
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <p className="text-xs text-gray-500 mt-1">The plan will spread remaining funds across all years so this balance is preserved at the end of the plan.</p>
+          </div>
+        )}
+
         {showsMonteCarloControls && (
           <div className="md:col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

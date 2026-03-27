@@ -80,6 +80,7 @@ export interface Scenario {
   spouse_life_expectancy?: number;
   healthcare_inflation?: number;
   legacy_goal?: number;
+  minimum_end_balance?: number;
   glide_path_enabled?: boolean;
   glide_target_age?: number;
   glide_target_stocks?: number;
@@ -189,6 +190,8 @@ export interface YearlyProjection {
   one_time_expenses: number;
   healthcare_expenses: number;
   total_expenses: number;
+  requested_expenses?: number;
+  original_requested_expenses?: number;
   net_cash_flow: number;
   expense_shortfall?: number;
   rrsp_contribution: number;

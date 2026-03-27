@@ -8,7 +8,7 @@ import type {
   AssetAllocation,
   MonteCarloResult
 } from '../types/retirement';
-import { runMonteCarloSimulation, type ProjectionOverrides } from '../lib/projectionEngine';
+import { runMonteCarloSimulation, type MonteCarloPathSet, type ProjectionOverrides } from '../lib/projectionEngine';
 import { clearTaxCache } from '../lib/taxEngine';
 
 export interface WorkerRequest {
@@ -20,6 +20,7 @@ export interface WorkerRequest {
   oneTimeEvents: OneTimeEvent[];
   allocations: AssetAllocation[];
   overrides?: ProjectionOverrides;
+  preGeneratedPaths?: MonteCarloPathSet;
 }
 
 export interface WorkerProgressMessage {
@@ -30,7 +31,7 @@ export interface WorkerProgressMessage {
 
 export interface WorkerResultMessage {
   type: 'result';
-  result: MonteCarloResult;
+  result: MonteCarloResult & { pathSet?: MonteCarloPathSet };
 }
 
 export interface WorkerErrorMessage {
@@ -39,7 +40,17 @@ export interface WorkerErrorMessage {
 }
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
-  const { scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents, allocations, overrides } = e.data;
+  const {
+    scenario,
+    incomeSources,
+    savingsAccounts,
+    expenseLadder,
+    healthcareSteps,
+    oneTimeEvents,
+    allocations,
+    overrides,
+    preGeneratedPaths,
+  } = e.data;
 
   clearTaxCache();
 
@@ -56,7 +67,8 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         self.postMessage(msg);
       },
       allocations,
-      overrides
+      overrides,
+      preGeneratedPaths
     );
 
     const msg: WorkerResultMessage = { type: 'result', result };

@@ -115,7 +115,7 @@ export function shouldRecommendSuccessOptimization(
     triggerReason: lowSuccessRate && medianFallsShort ? 'both' : lowSuccessRate ? 'low_success_rate' : 'median_shortfall',
     medianRunOutAge,
   };
-
+}
 
 export function applyExpenseReductionFromAge(
   expenseLadder: ExpenseLadder[],
@@ -182,6 +182,16 @@ export function getDownturnEventIndices(result: MonteCarloResult, oneTimeEvents:
     .filter(({ event }) => event.event_type === 'expense' && downturnAges.has(event.age))
     .map(({ index }) => index);
 }
+export async function optimizeRetirementSuccessPlan({
+  scenario,
+  incomeSources,
+  savingsAccounts,
+  expenseLadder,
+  healthcareSteps,
+  oneTimeEvents,
+  assetAllocations,
+  baselineMonteCarloResult,
+}: OptimizationInputs): Promise<RetirementSuccessOptimizationResult | null> {
   const recommendation = shouldRecommendSuccessOptimization(scenario, baselineMonteCarloResult);
   if (!recommendation.shouldRecommend) {
     return null;
@@ -342,7 +352,7 @@ async function searchExpenseReductionStage({
   maxPercent,
   stepPercent,
   searchIterations,
-  pathSet?: MonteCarloPathSet,
+  pathSet,
 }: {
   scenario: Scenario;
   incomeSources: IncomeSource[];
@@ -359,6 +369,7 @@ async function searchExpenseReductionStage({
   maxPercent: number;
   stepPercent: number;
   searchIterations: number;
+  pathSet?: MonteCarloPathSet;
 }): Promise<EvaluatedCandidate> {
   let bestCandidate = currentCandidate;
   const retirementAge = scenario.retirement_age;
@@ -407,7 +418,7 @@ async function searchEventDeferrals({
   baselineMonteCarloResult,
   currentCandidate,
   searchIterations,
-  pathSet?: MonteCarloPathSet,
+  pathSet,
 }: {
   scenario: Scenario;
   incomeSources: IncomeSource[];
@@ -418,6 +429,7 @@ async function searchEventDeferrals({
   baselineMonteCarloResult: MonteCarloResult;
   currentCandidate: EvaluatedCandidate;
   searchIterations: number;
+  pathSet?: MonteCarloPathSet;
 }): Promise<EvaluatedCandidate> {
   let bestCandidate = currentCandidate;
   const eligibleIndices = getDownturnEventIndices(baselineMonteCarloResult, currentCandidate.oneTimeEvents)

@@ -30,8 +30,6 @@ export default function SuccessOptimizationCard({
     return null;
   }
 
-  const deltaPreview = optimization ? JSON.stringify(optimization.delta, null, 2) : '';
-
   return (
     <div className="rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-5 shadow-sm">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -107,19 +105,9 @@ export default function SuccessOptimizationCard({
         </div>
       </div>
 
-      {optimization && !isLoading && (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-white/80 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-gray-900">JSON Delta Preview</h4>
-            <span className="text-xs font-medium text-gray-500">Applied to expense ladder and one-time events on confirm</span>
-          </div>
-          <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-gray-950 p-4 text-xs leading-5 text-amber-100">{deltaPreview}</pre>
-        </div>
-      )}
-
       {hasAppliedOptimization && (
         <p className="mt-3 text-xs text-amber-900">
-          The current plan includes an applied optimization snapshot. Undo restores the prior expense ladder and one-time events, then re-runs the simulation.
+          The current plan includes an applied optimization simulation snapshot. Undo removes the optimization overlay and re-runs the simulation using your current form inputs.
         </p>
       )}
     </div>
