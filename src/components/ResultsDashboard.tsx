@@ -10,6 +10,7 @@ import TaxInfoModal from './TaxInfoModal';
 import TaxVerificationPanel from './TaxVerificationPanel';
 import PortfolioBreakdownModal, { PortfolioSlice } from './PortfolioBreakdownModal';
 import AISuggestionsPanel from './AISuggestionsPanel';
+import SuccessOptimizationCard from './SuccessOptimizationCard';
 import { YearlyProjection, MonteCarloResult, Scenario, IncomeSource, SavingsAccount, ExpenseLadder, HealthcareStep, OneTimeEvent, AssetAllocation, SavedComparisonResult, ComparisonDataset } from '../types/retirement';
 import { formatCurrency } from '../lib/formatters';
 import { presentValue } from '../lib/benefitsEngine';
@@ -18,6 +19,7 @@ import { type LiveTaxData } from '../lib/taxDataService';
 import { generateSuggestions, calculateComparisonMetrics, type Suggestion } from '../lib/suggestionEngine';
 import { COMPARISON_STRATEGIES as WITHDRAWAL_STRATEGIES, getComparisonData } from '../lib/projectionEngine';
 import { DEFAULT_LEGACY_GOAL } from '../lib/constants';
+import type { RetirementSuccessOptimizationResult } from '../lib/successOptimization';
 
 type RelativeScoreCard = {
   key: string;
@@ -134,6 +136,16 @@ interface ResultsDashboardProps {
   mcIsStale?: boolean;
   onRerunMonteCarlo?: () => void;
   onOpenAssistant?: () => void;
+  successOptimization?: RetirementSuccessOptimizationResult | null;
+  shouldOfferSuccessOptimization?: boolean;
+  successOptimizationRequested?: boolean;
+  isOptimizingSuccessPlan?: boolean;
+  onAnalyzeSuccessOptimization?: () => void;
+  onApplySuccessOptimization?: () => void;
+  isApplyingSuccessOptimization?: boolean;
+  onUndoSuccessOptimization?: () => void;
+  isUndoingSuccessOptimization?: boolean;
+  hasAppliedSuccessOptimization?: boolean;
 }
 
 function StatCard({ icon: Icon, label, value, sub, color, onInfoClick, onPieClick, dialPercent }: {
@@ -239,7 +251,16 @@ export default function ResultsDashboard({
   onWithdrawalStrategyChange,
   mcIsStale = false,
   onRerunMonteCarlo,
-  onOpenAssistant,
+  successOptimization = null,
+  shouldOfferSuccessOptimization = false,
+  successOptimizationRequested = false,
+  isOptimizingSuccessPlan = false,
+  onAnalyzeSuccessOptimization,
+  onApplySuccessOptimization,
+  isApplyingSuccessOptimization = false,
+  onUndoSuccessOptimization,
+  isUndoingSuccessOptimization = false,
+  hasAppliedSuccessOptimization = false,
 }: ResultsDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'cashflow' | 'tax' | 'table' | 'verify'>('overview');
   const [showTodayDollars, setShowTodayDollars] = useState(true);
@@ -788,6 +809,21 @@ export default function ResultsDashboard({
           color="bg-blue-500"
         />
       </div>
+
+      {(forecastMode === 'monte_carlo' || isOptimizingSuccessPlan || successOptimization || shouldOfferSuccessOptimization) && (
+        <SuccessOptimizationCard
+          optimization={successOptimization}
+          shouldOfferOptimization={shouldOfferSuccessOptimization}
+          hasRequestedOptimization={successOptimizationRequested}
+          isLoading={isOptimizingSuccessPlan}
+          onAnalyze={onAnalyzeSuccessOptimization}
+          isApplying={isApplyingSuccessOptimization}
+          onApply={onApplySuccessOptimization}
+          onUndo={onUndoSuccessOptimization}
+          isUndoing={isUndoingSuccessOptimization}
+          hasAppliedOptimization={hasAppliedSuccessOptimization}
+        />
+      )}
 
       {mcIsStale && monteCarloResult?.mode === 'monte_carlo' && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">

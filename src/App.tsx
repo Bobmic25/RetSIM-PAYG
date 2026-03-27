@@ -45,7 +45,12 @@ import { estimateMarketAssumptions } from './lib/marketAssumptions';
 import { DEFAULT_LEGACY_GOAL, DEFAULT_MANAGEMENT_FEE_PCT } from './lib/constants';
 import type { Suggestion } from './lib/suggestionEngine';
 import { buildAssistantContext, type AssistantEntryPoint } from './lib/assistantService';
+import {
+  shouldRecommendSuccessOptimization,
+  type RetirementSuccessOptimizationResult,
+} from './lib/successOptimization';
 import MonteCarloWorker from './workers/monteCarlo.worker?worker';
+import SuccessOptimizationWorker from './workers/successOptimization.worker?worker';
 
 const NAV_ITEMS = [
   { icon: User, label: 'Profile' },
@@ -187,6 +192,10 @@ function App() {
   const [oneTimeEvents, setOneTimeEvents] = useState<OneTimeEvent[]>([]);
   const [projections, setProjections] = useState<YearlyProjection[]>([]);
   const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | undefined>();
+  // MC cache: stores last-used scenario hash, return sequence, and result
+  const monteCarloCacheRef = useRef<{ scenarioHash: string; result: MonteCarloResult; projections: YearlyProjection[] } | null>(null);
+  // Used to force MC re-run
+  const [mcForceRerun, setMcForceRerun] = useState(0);
   const [optimizedProjections, setOptimizedProjections] = useState<YearlyProjection[] | null>(null);
   const [optimizedMonteCarloResult, setOptimizedMonteCarloResult] = useState<MonteCarloResult | undefined>();
   const [activeSuggestion, setActiveSuggestion] = useState<Suggestion | null>(null);
@@ -199,10 +208,22 @@ function App() {
   const [taxDataStatus, setTaxDataStatus] = useState<'loading' | 'live' | 'fallback'>('loading');
   const [tfsaLimitData, setTfsaLimitData] = useState<LiveTfsaLimitData | null>(null);
   const [mcIsStale, setMcIsStale] = useState(false);
+  const [successOptimization, setSuccessOptimization] = useState<RetirementSuccessOptimizationResult | null>(null);
+  const [isOptimizingSuccessPlan, setIsOptimizingSuccessPlan] = useState(false);
+  const [isApplyingSuccessOptimization, setIsApplyingSuccessOptimization] = useState(false);
+  const [isUndoingSuccessOptimization, setIsUndoingSuccessOptimization] = useState(false);
+  const [successOptimizationRefreshTrigger, setSuccessOptimizationRefreshTrigger] = useState(0);
+  const [successOptimizationRequested, setSuccessOptimizationRequested] = useState(false);
+  const [successOptimizationUndoState, setSuccessOptimizationUndoState] = useState<{
+    expenseLadder: ExpenseLadder[];
+    oneTimeEvents: OneTimeEvent[];
+  } | null>(null);
   const [marketAssumptionsAuto, setMarketAssumptionsAuto] = useState(true);
   const [showAssistant, setShowAssistant] = useState(false);
   const [assistantEntryPoint, setAssistantEntryPoint] = useState<AssistantEntryPoint>('header');
   const calculationPending = useRef(false);
+  const optimizationRequestRef = useRef(0);
+  const optimizationWorkerRef = useRef<Worker | null>(null);
 
   const assistantContext = useMemo(() => buildAssistantContext({
     currentStep,
@@ -215,6 +236,11 @@ function App() {
     taxDataStatus,
     mcIsStale,
   }), [currentStep, scenario, savingsAccounts, projections, monteCarloResult, savedResults, taxDataStatus, mcIsStale]);
+
+  const successOptimizationEligibility = useMemo(
+    () => shouldRecommendSuccessOptimization(scenario, monteCarloResult),
+    [scenario, monteCarloResult]
+  );
 
   useEffect(() => {
     fetchLiveInflationData().then(data => {
@@ -289,8 +315,36 @@ function App() {
 
   const activeWorkerRef = useRef<Worker | null>(null);
 
-  const runSimulation = async (scenarioOverride?: Scenario, overrides?: ProjectionOverrides) => {
+  const terminateOptimizationWorker = () => {
+    if (optimizationWorkerRef.current) {
+      optimizationWorkerRef.current.terminate();
+      optimizationWorkerRef.current = null;
+    }
+  };
+
+  const hashScenario = (s: Scenario, inc: IncomeSource[], sav: SavingsAccount[], exp: ExpenseLadder[], hc: HealthcareStep[], ev: OneTimeEvent[], alloc: AssetAllocation[]) => {
+    // Only hash MC-relevant fields
+    return JSON.stringify({
+      scenario: s,
+      incomeSources: inc,
+      savingsAccounts: sav,
+      expenseLadder: exp,
+      healthcareSteps: hc,
+      oneTimeEvents: ev,
+      assetAllocations: alloc
+    });
+  };
+
+  const runSimulation = async (
+    scenarioOverride?: Scenario,
+    overrides?: ProjectionOverrides,
+    expenseLadderOverride?: ExpenseLadder[],
+    oneTimeEventsOverride?: OneTimeEvent[],
+    forceRerun?: boolean
+  ) => {
     const simScenario = scenarioOverride ?? scenario;
+    const simExpenseLadder = expenseLadderOverride ?? expenseLadder;
+    const simOneTimeEvents = oneTimeEventsOverride ?? oneTimeEvents;
 
     if (activeWorkerRef.current) {
       activeWorkerRef.current.terminate();
@@ -300,8 +354,22 @@ function App() {
     setIsCalculating(true);
     setMcProgress(null);
     setMcIsStale(false);
+    setIsOptimizingSuccessPlan(false);
+    setSuccessOptimization(null);
+    setSuccessOptimizationRequested(false);
+    terminateOptimizationWorker();
 
     if (simScenario.return_type === 'monte_carlo') {
+      // Compute a hash of all MC-relevant inputs
+      const scenarioHash = hashScenario(simScenario, incomeSources, savingsAccounts, simExpenseLadder, healthcareSteps, simOneTimeEvents, assetAllocations);
+      if (!forceRerun && monteCarloCacheRef.current && monteCarloCacheRef.current.scenarioHash === scenarioHash) {
+        // Use cached result
+        setProjections(monteCarloCacheRef.current.projections);
+        setMonteCarloResult(monteCarloCacheRef.current.result);
+        setIsCalculating(false);
+        setMcProgress(null);
+        return;
+      }
       clearTaxCache();
       const worker = new MonteCarloWorker();
       activeWorkerRef.current = worker;
@@ -315,6 +383,12 @@ function App() {
             setProjections(msg.result.percentile_50);
             setMonteCarloResult(msg.result);
             setMcIsStale(false);
+            // Save to cache
+            monteCarloCacheRef.current = {
+              scenarioHash,
+              result: msg.result,
+              projections: msg.result.percentile_50
+            };
             worker.terminate();
             activeWorkerRef.current = null;
             resolve();
@@ -333,9 +407,9 @@ function App() {
           scenario: simScenario,
           incomeSources,
           savingsAccounts,
-          expenseLadder,
+          expenseLadder: simExpenseLadder,
           healthcareSteps,
-          oneTimeEvents,
+          oneTimeEvents: simOneTimeEvents,
           allocations: assetAllocations,
           overrides
         });
@@ -346,9 +420,9 @@ function App() {
         simScenario,
         incomeSources,
         savingsAccounts,
-        expenseLadder,
+        simExpenseLadder,
         healthcareSteps,
-        oneTimeEvents,
+        simOneTimeEvents,
         assetAllocations,
         overrides
       );
@@ -360,9 +434,9 @@ function App() {
         simScenario,
         incomeSources,
         savingsAccounts,
-        expenseLadder,
+        simExpenseLadder,
         healthcareSteps,
-        oneTimeEvents,
+        simOneTimeEvents,
         assetAllocations,
         overrides
       );
@@ -374,9 +448,9 @@ function App() {
         simScenario,
         incomeSources,
         savingsAccounts,
-        expenseLadder,
+        simExpenseLadder,
         healthcareSteps,
-        oneTimeEvents,
+        simOneTimeEvents,
         undefined,
         undefined,
         undefined,
@@ -399,9 +473,109 @@ function App() {
 
   useEffect(() => {
     if (currentStep === RESULTS_STEP) {
-      runSimulation();
+      runSimulation(undefined, undefined, undefined, undefined, mcForceRerun !== 0);
     }
-  }, [currentStep]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, mcForceRerun]);
+
+  useEffect(() => {
+    if (currentStep !== RESULTS_STEP || scenario.return_type !== 'monte_carlo' || !monteCarloResult) {
+      setIsOptimizingSuccessPlan(false);
+      setSuccessOptimization(null);
+      terminateOptimizationWorker();
+      return;
+    }
+
+    if (!successOptimizationEligibility.shouldRecommend) {
+      setIsOptimizingSuccessPlan(false);
+      setSuccessOptimization(null);
+      setSuccessOptimizationRequested(false);
+      terminateOptimizationWorker();
+      return;
+    }
+
+    if (!successOptimizationRequested) {
+      setIsOptimizingSuccessPlan(false);
+      terminateOptimizationWorker();
+      return;
+    }
+
+    const requestId = optimizationRequestRef.current + 1;
+    optimizationRequestRef.current = requestId;
+    setIsOptimizingSuccessPlan(true);
+
+    terminateOptimizationWorker();
+    const worker = new SuccessOptimizationWorker();
+    optimizationWorkerRef.current = worker;
+
+    worker.onmessage = (event: MessageEvent) => {
+      const message = event.data;
+      if (optimizationRequestRef.current !== requestId) {
+        return;
+      }
+
+      if (message.type === 'result') {
+        setSuccessOptimization(message.result);
+        setIsOptimizingSuccessPlan(false);
+        worker.terminate();
+        optimizationWorkerRef.current = null;
+        return;
+      }
+
+      if (message.type === 'error') {
+        console.error('Error optimizing retirement success plan:', message.message);
+        setSuccessOptimization(null);
+        setIsOptimizingSuccessPlan(false);
+        worker.terminate();
+        optimizationWorkerRef.current = null;
+      }
+    };
+
+    worker.onerror = (error) => {
+      if (optimizationRequestRef.current !== requestId) {
+        return;
+      }
+
+      console.error('Error optimizing retirement success plan:', error);
+      setSuccessOptimization(null);
+      setIsOptimizingSuccessPlan(false);
+      worker.terminate();
+      optimizationWorkerRef.current = null;
+    };
+
+    worker.postMessage({
+      scenario,
+      incomeSources,
+      savingsAccounts,
+      expenseLadder,
+      healthcareSteps,
+      oneTimeEvents,
+      allocations: assetAllocations,
+      baselineMonteCarloResult: monteCarloResult,
+    });
+
+    return () => {
+      if (optimizationRequestRef.current === requestId) {
+        worker.terminate();
+        if (optimizationWorkerRef.current === worker) {
+          optimizationWorkerRef.current = null;
+        }
+      }
+    };
+  }, [
+    currentStep,
+    scenario,
+    incomeSources,
+    savingsAccounts,
+    expenseLadder,
+    healthcareSteps,
+    oneTimeEvents,
+    assetAllocations,
+    monteCarloResult,
+    successOptimizationEligibility.shouldRecommend,
+    successOptimizationRequested,
+    successOptimizationRefreshTrigger,
+  ]);
 
   const navigateTo = (index: number) => {
     if (index === RESULTS_STEP && index !== currentStep) {
@@ -478,6 +652,62 @@ function App() {
     setOptimizedMonteCarloResult(undefined);
   };
 
+  const handleApplySuccessOptimization = async () => {
+    if (!successOptimization) {
+      return;
+    }
+
+    const nextExpenseLadder = successOptimization.delta.expenseLadder;
+    const nextOneTimeEvents = successOptimization.delta.oneTimeEvents;
+
+    try {
+      setIsApplyingSuccessOptimization(true);
+      setSuccessOptimizationUndoState({
+        expenseLadder: expenseLadder.map(row => ({ ...row })),
+        oneTimeEvents: oneTimeEvents.map(event => ({ ...event })),
+      });
+      setExpenseLadder(nextExpenseLadder);
+      setOneTimeEvents(nextOneTimeEvents);
+      setSuccessOptimizationRefreshTrigger(trigger => trigger + 1);
+      console.info('Applying optimization delta', successOptimization.delta);
+      await runSimulation(undefined, undefined, nextExpenseLadder, nextOneTimeEvents);
+    } catch (error) {
+      console.error('Error applying success optimization:', error);
+    } finally {
+      setIsApplyingSuccessOptimization(false);
+    }
+  };
+
+  const handleUndoSuccessOptimization = async () => {
+    if (!successOptimizationUndoState) {
+      return;
+    }
+
+    try {
+      setIsUndoingSuccessOptimization(true);
+      setExpenseLadder(successOptimizationUndoState.expenseLadder);
+      setOneTimeEvents(successOptimizationUndoState.oneTimeEvents);
+      setSuccessOptimizationUndoState(null);
+      setSuccessOptimizationRefreshTrigger(trigger => trigger + 1);
+      await runSimulation(
+        undefined,
+        undefined,
+        successOptimizationUndoState.expenseLadder,
+        successOptimizationUndoState.oneTimeEvents
+      );
+    } catch (error) {
+      console.error('Error undoing success optimization:', error);
+    } finally {
+      setIsUndoingSuccessOptimization(false);
+    }
+  };
+
+  const handleAnalyzeSuccessOptimization = () => {
+    setSuccessOptimizationRequested(true);
+    setSuccessOptimization(null);
+    setSuccessOptimizationRefreshTrigger(trigger => trigger + 1);
+  };
+
   const handleWithdrawalStrategyChange = async (newStrategy: Scenario['withdrawal_strategy']) => {
     const normalizedRrspExhaustYears = Math.max(
       1,
@@ -526,7 +756,8 @@ function App() {
 
   const handleRerunMonteCarlo = async () => {
     try {
-      await runSimulation();
+      setMcForceRerun(v => v + 1);
+      await runSimulation(undefined, undefined, undefined, undefined, true);
     } catch (error) {
       console.error('Error re-running Monte Carlo simulation:', error);
     }
@@ -730,6 +961,16 @@ function App() {
                   mcIsStale={mcIsStale}
                   onRerunMonteCarlo={handleRerunMonteCarlo}
                   onOpenAssistant={() => openAssistant('results')}
+                  successOptimization={successOptimization}
+                  shouldOfferSuccessOptimization={successOptimizationEligibility.shouldRecommend}
+                  successOptimizationRequested={successOptimizationRequested}
+                  isOptimizingSuccessPlan={isOptimizingSuccessPlan}
+                  onAnalyzeSuccessOptimization={handleAnalyzeSuccessOptimization}
+                  onApplySuccessOptimization={handleApplySuccessOptimization}
+                  isApplyingSuccessOptimization={isApplyingSuccessOptimization}
+                  onUndoSuccessOptimization={handleUndoSuccessOptimization}
+                  isUndoingSuccessOptimization={isUndoingSuccessOptimization}
+                  hasAppliedSuccessOptimization={Boolean(successOptimizationUndoState)}
                   onTaxDataRefreshed={(data) => {
                     setActiveLiveTaxData(data);
                     setLiveTaxData(data);

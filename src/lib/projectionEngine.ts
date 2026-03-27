@@ -1441,7 +1441,7 @@ async function runProjectionForComparisonMode(
       return result.percentile_50;
     }
     case 'monte_carlo': {
-      const result = await runMonteCarloSimulation(
+      return runSingleProjection(
         scenario,
         incomeSources,
         savingsAccounts,
@@ -1449,9 +1449,10 @@ async function runProjectionForComparisonMode(
         healthcareSteps,
         oneTimeEvents,
         undefined,
+        undefined,
+        undefined,
         allocations
       );
-      return result.percentile_50;
     }
     default:
       return runSingleProjection(
@@ -1858,8 +1859,13 @@ export function runSingleProjection(
 
     let livingExpenses = livingExpenseComponent + travelExpenseComponent + otherExpenseComponent;
     const guaranteedIncome = salary + totalCpp + totalOas + totalDbPension + gisAmount + inheritance;
-    let totalExpensesNeeded = livingExpenses + healthcareExpenses + oneTimeExpenses;
+    let plannedExpenseCap = livingExpenses + healthcareExpenses + oneTimeExpenses;
+    let totalExpensesNeeded = plannedExpenseCap;
     let totalCashNeed = totalExpensesNeeded + totalSalaryFundedContributions + mortgagePayment;
+  // Enforce cap: do not allow more to be spent than planned expenses+healthcare+events
+  // If available cash flow exceeds this, surplus will be reinvested below (existing logic)
+  // This ensures net outflow never exceeds planned expenses if there are enough funds
+  // (totalCashNeed is already based on totalExpensesNeeded, so this is sufficient)
 
     if (scenario.return_type === 'adaptive_withdrawal' && isRetired && preExpensePortfolioBalance > 0) {
       const plannedWithdrawalRate = Math.max(0, totalCashNeed - guaranteedIncome) / preExpensePortfolioBalance;
@@ -2501,6 +2507,11 @@ export function runGoalSeekingSimulation(
   });
 }
 
+export interface MonteCarloPathSet {
+  returnSequences: number[][];
+  inflationSequences: number[][];
+}
+
 export async function runMonteCarloSimulation(
   scenario: Scenario,
   incomeSources: IncomeSource[],
@@ -2510,8 +2521,9 @@ export async function runMonteCarloSimulation(
   oneTimeEvents: OneTimeEvent[],
   onProgress?: (completed: number, total: number) => void,
   allocations?: AssetAllocation[],
-  overrides?: ProjectionOverrides
-): Promise<MonteCarloResult> {
+  overrides?: ProjectionOverrides,
+  preGeneratedPaths?: MonteCarloPathSet
+): Promise<MonteCarloResult & { pathSet?: MonteCarloPathSet }> {
   const effectiveRetirementAge = overrides?.retirementAge ?? scenario.retirement_age;
   const iterations = scenario.monte_carlo_iterations;
   const totalYears = (effectiveRetirementAge - scenario.current_age) + scenario.plan_duration;
@@ -2533,20 +2545,45 @@ export async function runMonteCarloSimulation(
     : null;
   const { usWeight, cadWeight, intWeight } = geoFromScenario ?? getPortfolioGeoWeights(allocations || [], savingsAccounts);
 
-  const result = await runMonteCarloMemoryEfficient(
-    iterations,
-    () => {
-      const returnSequence = generateReturnSequence(
-        totalYears, netExpectedReturn, scenario.return_std_dev || 10, usWeight, cadWeight, intWeight
-      );
-      const inflationSequence = generateStochasticInflationSequence(totalYears, scenario.inflation_rate);
-      return runSingleProjection(
-        scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
-        returnSequence, undefined, undefined, allocations, inflationSequence, overrides
-      );
-    },
-    onProgress
-  );
+  let usedReturnSequences: number[][] = [];
+  let usedInflationSequences: number[][] = [];
+  let result;
+  if (preGeneratedPaths) {
+    // Use provided paths for all iterations
+    usedReturnSequences = preGeneratedPaths.returnSequences;
+    usedInflationSequences = preGeneratedPaths.inflationSequences;
+    result = await runMonteCarloMemoryEfficient(
+      iterations,
+      (iterationIdx: number = 0) => {
+        const returnSequence = usedReturnSequences[iterationIdx];
+        const inflationSequence = usedInflationSequences[iterationIdx];
+        return runSingleProjection(
+          scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
+          returnSequence, undefined, undefined, allocations, inflationSequence, overrides
+        );
+      },
+      onProgress,
+      usedReturnSequences.length
+    );
+  } else {
+    // Generate new paths
+    result = await runMonteCarloMemoryEfficient(
+      iterations,
+      () => {
+        const returnSequence = generateReturnSequence(
+          totalYears, netExpectedReturn, scenario.return_std_dev || 10, usWeight, cadWeight, intWeight
+        );
+        const inflationSequence = generateStochasticInflationSequence(totalYears, scenario.inflation_rate);
+        usedReturnSequences.push(returnSequence);
+        usedInflationSequences.push(inflationSequence);
+        return runSingleProjection(
+          scenario, incomeSources, savingsAccounts, expenseLadder, healthcareSteps, oneTimeEvents,
+          returnSequence, undefined, undefined, allocations, inflationSequence, overrides
+        );
+      },
+      onProgress
+    );
+  }
 
   return {
     mode: 'monte_carlo',
@@ -2556,6 +2593,7 @@ export async function runMonteCarloSimulation(
     success_rate: result.successRate,
     iterations: result.totalIterations,
     summary_label: 'Success Rate',
+    pathSet: (!preGeneratedPaths ? { returnSequences: usedReturnSequences, inflationSequences: usedInflationSequences } : undefined),
   };
 }
 
